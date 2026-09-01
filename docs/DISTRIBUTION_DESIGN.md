@@ -129,7 +129,8 @@ job is active; jobs arriving mid-install wait in the server queue and are
 caught up on restart.
 
 - **Windows**: run `TBHprint-Setup-<ver>.exe /VERYSILENT /SUPPRESSMSGBOXES
-  /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. Per-user install =
+  /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS
+  /RESTARTAPPLICATIONS` (force: Restart Manager cannot close pythonw). Per-user install =
   no UAC. The installer's post-install `[Run]` relaunches the tray.
 - **Linux**: the daemon (unprivileged) writes
   `/var/lib/tbhprint/update/<file>.deb` + `.sha256` and touches

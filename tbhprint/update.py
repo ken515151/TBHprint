@@ -128,8 +128,14 @@ def install_when_idle(manifest: UpdateManifest, downloaded_path: str, *, is_job_
 
 
 def _install_windows(installer_path: str) -> None:
+    # /FORCECLOSEAPPLICATIONS: the Restart Manager cannot close pythonw
+    # gracefully (Tk windows ignore the shutdown message), and a silent
+    # setup's suppressed Abort/Retry/Ignore box defaults to ABORT - the
+    # whole update rolled back (found live 2026-09-01). Force-terminating
+    # our own tray/agent is safe: installs only run when no job is active,
+    # and the installer's [Run] entry starts the tray again.
     argv = [installer_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
-           "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"]
+           "/CLOSEAPPLICATIONS", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"]
     log.info("running installer detached: %s", " ".join(argv))
     detached = getattr(subprocess, "DETACHED_PROCESS", 0)
     new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

@@ -252,3 +252,35 @@ command; update manifest parsing, sha256 refusal, "no install while a job
 is active"; Windows print-to-PDF integration (skipped elsewhere); Inno
 script and .deb control files linted (`iscc /?` not needed - the CI build
 is the test).
+
+## As built (2026-09-01)
+
+Everything above shipped, with these reconciliations:
+
+- **Runtime**: the python.org NuGet `python` package has no tkinter, so
+  `build.ps1` backfills Tcl/Tk from the official installer's `tcltk.msi`
+  (same publisher, same version, sha256-pinned); it still fails loudly if
+  tkinter is missing afterwards.
+- **No bytecode in the install tree**: every launch uses `-B` (shortcuts,
+  Run key, supervisor child + `PYTHONDONTWRITEBYTECODE`), the runtime
+  ships `aaa_tbhprint_nobytecode.pth` + `sitecustomize.py`, and the
+  uninstaller sweeps `{app}` unconditionally before asking about the state
+  directory. A silent uninstall never prompts and keeps
+  `%LOCALAPPDATA%\TBHprint`.
+- **Linux service** runs with `Group=tbhprint` + `SupplementaryGroups=lp`
+  (the socket must be group-tbhprint); `/etc/tbhprint` is `root:tbhprint`
+  2770 so the daemon can save pairing atomically.
+- **Update path unit** clears the `requested` marker before installing so
+  a failing `apt-get` can never loop; a failed `.deb` is kept for
+  diagnosis.
+- `output=<path>` printer option for file-backed Windows queues (how the
+  end-to-end test prints, and how a shop can archive to PDF).
+- Windows-only deviations from the owner-facing story: none. Unsigned
+  setup exe until a code-signing certificate exists.
+
+Verified 2026-09-01: `.deb` installs on ubuntu:22.04 (Python 3.10) and
+debian:12 in Docker; Windows installer install → pair → server-queued
+ticket label printed through GDI to *Microsoft Print to PDF* → acked →
+Settings opened from the Start-Menu path → supervisor restarted a killed
+agent → silent uninstall clean. Real label/laser printers and a real Linux
+desktop remain the owner's test.

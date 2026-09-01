@@ -46,6 +46,8 @@ class TrayApplet:
         self.initial_window = open_window
         self.status: dict[str, Any] | None = None
         self._last_state: str | None = None
+        self._printers: list[tuple[str, str]] = []   # (key, name), cached by refresh()
+        self._menu_fingerprint: tuple | None = None
         self._offered_settings = False        # opened Settings once already for an unpaired agent
         self._actions: queue.Queue[Callable[[], None]] = queue.Queue()
         self.root = tk.Tk()
@@ -93,11 +95,12 @@ class TrayApplet:
         )
 
     def _printer_items(self):
-        cfg = self.try_call("get_config") or {}
-        printers = (cfg.get("printers") or {})
-        if not printers:
+        # Served from the cache refresh() keeps: this runs on pystray's menu
+        # thread the moment the submenu opens, so it must never make a
+        # control-channel call - a slow daemon would freeze the open menu.
+        if not self._printers:
             return [pystray.MenuItem("No printers configured", None, enabled=False)]
-        return [pystray.MenuItem(p["name"], self._on_tk(lambda key=key: self.test_print(key))) for key, p in printers.items()]
+        return [pystray.MenuItem(name, self._on_tk(lambda key=key: self.test_print(key))) for key, name in self._printers]
 
     def _on_tk(self, fn: Callable[[], None]):
         """Wrap a menu action so it runs on the Tk thread."""
@@ -191,10 +194,22 @@ class TrayApplet:
         for window in list(self.windows.values()):
             if window.alive():
                 window.refresh()
-        try:
-            self.icon.update_menu()
-        except Exception:
-            pass
+        cfg = self.try_call("get_config") or {}
+        self._printers = [(key, p.get("name") or key) for key, p in (cfg.get("printers") or {}).items()]
+        # Rebuild the native menu ONLY when what it shows has changed. An
+        # unconditional update_menu() every tick replaced the open menu under
+        # the cursor - the highlight froze after a second or two of hovering
+        # (owner report, 2026-09-01). pystray re-evaluates the dynamic labels
+        # each time the menu opens anyway, so a rebuild is only needed to
+        # refresh a menu that is already open when the state really moves.
+        fingerprint = (state_label(self.status), bool((self.status or {}).get("paused")),
+                       bool((self.status or {}).get("paired")), tuple(self._printers))
+        if fingerprint != self._menu_fingerprint:
+            self._menu_fingerprint = fingerprint
+            try:
+                self.icon.update_menu()
+            except Exception:
+                pass
 
     def _tick(self) -> None:
         self.refresh()

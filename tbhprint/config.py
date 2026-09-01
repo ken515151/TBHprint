@@ -4,11 +4,11 @@ One JSON file; the daemon is its single writer (the CLI edits it through
 the control socket while the daemon runs, directly when it doesn't).
 
 Locations (override with --config):
-  Windows: %ProgramData%\\TBHprint\\config.json
+  Windows: %LOCALAPPDATA%\TBHprint\config.json (per-user install)
   Linux:   /etc/tbhprint/config.json
   macOS:   /Library/Application Support/TBHprint/config.json
 
-The bearer token lives in this file (0600 / ProgramData ACLs) unless the
+The bearer token lives in this file (0600 / per-user profile ACLs) unless the
 optional `keyring` package is installed, in which case it is stored in the
 OS credential store under service "tbhprint" and the file holds "keyring".
 """

@@ -147,7 +147,7 @@ def parse_options(options: list[str] | None) -> dict[str, Any]:
     """Per-printer `options` strings -> a settings dict. Unknown keys or bad
     values are logged and ignored rather than failing the whole job - a typo
     in one option should not stop printing."""
-    parsed: dict[str, Any] = {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit"}
+    parsed: dict[str, Any] = {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit", "output": None}
     for opt in options or []:
         opt = (opt or "").strip()
         if not opt:
@@ -163,6 +163,12 @@ def parse_options(options: list[str] | None) -> dict[str, Any]:
             parsed["orientation"] = value
         elif key == "fit" and value in FIT_MODES:
             parsed["fit"] = value
+        elif key == "output" and value:
+            # File-backed queues ("Microsoft Print to PDF", XPS writer) pop a
+            # Save dialog unless StartDoc is handed an output path - this is
+            # how the end-to-end verification prints without a printer, and
+            # how a shop can archive to PDF. Never sensible for a real printer.
+            parsed["output"] = value
         else:
             log.warning("ignoring unrecognised printer option %r", opt)
     return parsed
@@ -333,7 +339,7 @@ def _print_pdf(printer: str, pdf_path: str, *, copies: int, options: list[str] |
     try:
         device = _device_geometry(gdi32, hdc)
         doc_name = (title or "TBHprint job")[:255]
-        doc_info = _DOCINFOW(ctypes.sizeof(_DOCINFOW), doc_name, output_path, None, 0)
+        doc_info = _DOCINFOW(ctypes.sizeof(_DOCINFOW), doc_name, output_path or opts["output"], None, 0)
         job_id = gdi32.StartDocW(ctypes.c_void_p(hdc), ctypes.byref(doc_info))
         if job_id <= 0:
             raise _win32_error(gdi32, "StartDoc", driver_name)

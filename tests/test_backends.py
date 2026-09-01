@@ -196,3 +196,9 @@ def test_windows_cancel_rejects_unrecognised_id():
         windows.cancel("not-a-real-id")
     with pytest.raises(PrintError, match="not a Windows spooler job id"):
         windows.cancel("printer-with-no-hash")
+
+
+def test_parse_options_output_path():
+    from tbhprint.backends.windows import parse_options
+    assert parse_options([r"output=C:\out\label.pdf"])["output"] == r"C:\out\label.pdf"
+    assert parse_options(["output="])["output"] is None

@@ -44,16 +44,16 @@ def test_cups_list_printers_handles_no_destinations():
 
 def test_parse_options_known_keys():
     parsed = windows.parse_options(["duplex=long", "paper=A4", "orientation=landscape", "fit=none"])
-    assert parsed == {"duplex": "long", "paper": "A4", "orientation": "landscape", "fit": "none"}
+    assert parsed == {"duplex": "long", "paper": "A4", "orientation": "landscape", "fit": "none", "output": None}
 
 
 def test_parse_options_defaults_and_ignores_junk():
     parsed = windows.parse_options(["duplex=sideways", "bogus", "", None, "fit=maybe"])
-    assert parsed == {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit"}
+    assert parsed == {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit", "output": None}
 
 
 def test_parse_options_empty_list():
-    assert windows.parse_options(None) == {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit"}
+    assert windows.parse_options(None) == {"duplex": None, "paper": None, "orientation": "auto", "fit": "fit", "output": None}
 
 
 # -- windows: pack_dib_rows ----------------------------------------------------

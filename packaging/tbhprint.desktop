@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TBHprint
+Comment=TechBenchHub print agent - pairing, routing and print history
+Exec=tbhprint settings
+Icon=tbhprint
+Terminal=false
+Categories=Utility;Printing;

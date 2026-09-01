@@ -1,0 +1,10 @@
+[Unit]
+Description=Install a TBHprint update staged by the agent
+; Triggered by tbhprint-update.path. Runs as root (needed for apt-get/
+; dpkg); re-verifies the sha256 itself rather than trusting the
+; already-unprivileged-checked one, since this is the point a mismatched
+; file would run as root - see /usr/lib/tbhprint/apply-update.sh.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/tbhprint/apply-update.sh

@@ -6,12 +6,20 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=tbhprint
+# Primary group is "tbhprint" (not "lp") on purpose: this is the group
+# that ends up owning /run/tbhprint/control.sock (mode 0660) because a
+# freshly-created file/socket takes the creating process's PRIMARY group,
+# and docs/DISTRIBUTION_DESIGN.md section 3 needs that group to be
+# "tbhprint" so postinst can add the desktop user to exactly that group
+# (not "lp", which would also hand them raw CUPS access). "lp" comes in
+# as a supplementary group instead, purely so the daemon itself can talk
+# to the local print spooler.
 Group=tbhprint
 SupplementaryGroups=lp
-ExecStart=/usr/bin/python3 -m tbhprint run
+ExecStart=/opt/tbhprint/venv/bin/python -m tbhprint run
 WorkingDirectory=/var/lib/tbhprint
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=3
 
 RuntimeDirectory=tbhprint
 RuntimeDirectoryMode=0750

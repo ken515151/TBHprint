@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily TBHprint update check
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+Unit=tbhprint-update-check.service
+
+[Install]
+WantedBy=timers.target

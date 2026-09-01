@@ -104,8 +104,18 @@ class Supervisor:
     def _restart_loop(self) -> None:
         backoff = self.backoff_start
         while not self._stopping.is_set():
-            with self._lock:
-                self.child = self.spawn()
+            try:
+                with self._lock:
+                    self.child = self.spawn()
+            except Exception:
+                # A failed launch (missing interpreter after a broken update,
+                # locked log file, ...) must not end supervision: log it and
+                # keep trying on the same backoff as a crash.
+                log.exception("could not start the agent child - retrying in %.0fs", backoff)
+                if self._stopping.wait(backoff):
+                    break
+                backoff = min(backoff * 2, self.backoff_cap)
+                continue
             child = self.child
             log.info("agent child started (pid %s)", getattr(child, "pid", "?"))
             self._last_answered = time.monotonic()

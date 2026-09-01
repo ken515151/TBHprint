@@ -136,3 +136,43 @@ def test_rotate_log_if_large(tmp_path):
     supervisormod.rotate_log_if_large(str(path), max_bytes=1000, backups=3)
     assert (tmp_path / "tbhprint.log.2").read_bytes() == b"y" * 5000
     assert (tmp_path / "tbhprint.log.1").read_bytes() == b"z" * 5000
+
+
+def test_spawn_failure_is_retried_not_fatal():
+    """A launch that raises (e.g. missing interpreter) must not kill supervision."""
+    import threading
+    from tbhprint.supervisor import Supervisor
+
+    attempts = []
+    started = threading.Event()
+
+    class Child:
+        pid = 1
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+    def spawn():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise OSError("pythonw.exe not found")
+        started.set()
+        return Child()
+
+    sup = Supervisor(spawn, check_alive=lambda: True, backoff_start=0.01, backoff_cap=0.02,
+                     watchdog_interval=60, watchdog_timeout=60)
+    sup.start()
+    try:
+        assert started.wait(2), "second spawn attempt never happened"
+        assert len(attempts) == 2
+    finally:
+        sup.stop()

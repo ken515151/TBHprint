@@ -226,6 +226,10 @@ Write-Host "Copied pywin32_system32 DLLs beside python.exe."
 # release ever stops shipping pywin32.pth under --target installs).
 # No bytecode ever written into the install tree (see sitecustomize.py
 # header): the uninstaller can only remove what the installer put there.
+# .pth files are processed alphabetically and BEFORE sitecustomize, and
+# pywin32.pth carries `import` lines - so the bytecode switch must be the
+# first .pth in the directory or pywin32_bootstrap gets cached anyway.
+Set-Content -Path (Join-Path $sitePackages "aaa_tbhprint_nobytecode.pth") -Value "import sys; sys.dont_write_bytecode = True" -Encoding ascii
 Copy-Item (Join-Path $PSScriptRoot "sitecustomize.py") (Join-Path $sitePackages "sitecustomize.py") -Force
 Write-Host "Installed sitecustomize.py (dont_write_bytecode)."
 

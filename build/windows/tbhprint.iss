@@ -126,22 +126,25 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    // Config, pairing token, print history and logs - separate from the
-    // program files just removed. Ask, don't assume: a shop reinstalling
-    // TBHprint to point it at the same printers again will want this kept.
-    StateDir := ExpandConstant('{localappdata}\TBHprint');
-    if DirExists(StateDir) then
-    begin
-      if MsgBox('Also remove TBHprint''s settings, pairing and logs (' + StateDir + ')?' + #13#10 + 'Choose No to keep them for a future reinstall.', mbConfirmation, MB_YESNO) = IDYES then
-        DelTree(StateDir, True, True, True);
-    end;
-    // Belt-and-braces: Inno only removes the files/dirs it installed, not
-    // anything Python wrote at runtime (__pycache__, a stray log if
-    // something ran before "-B" shipped). By this point every tracked
-    // file is already gone, so whatever is left under {app} is safe to
-    // take with it rather than leave a phantom install directory behind.
+    // Sweep FIRST, unconditionally: Inno only removes the files/dirs it
+    // installed, not anything Python wrote at runtime (__pycache__ from a
+    // hand-run python.exe - our own launches use -B). By this point every
+    // tracked file is already gone, so whatever is left under {app} is
+    // safe to take with it rather than leave a phantom install directory.
     AppDir := ExpandConstant('{app}');
     if DirExists(AppDir) then
       DelTree(AppDir, True, True, True);
+    // Config, pairing token, print history and logs - separate from the
+    // program files just removed. Ask, don't assume: a shop reinstalling
+    // TBHprint to point it at the same printers again will want this kept.
+    // A silent uninstall (auto-update path, scripted removal) never asks
+    // and always keeps them - there is nobody there to answer.
+    StateDir := ExpandConstant('{localappdata}\TBHprint');
+    if DirExists(StateDir) and (not UninstallSilent) then
+    begin
+      if MsgBox('Also remove TBHprint''s settings, pairing and logs (' + StateDir + ')?' + #13#10 + 'Choose No to keep them for a future reinstall.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+        DelTree(StateDir, True, True, True);
+    end;
   end;
+end;
 end;

@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch for a TBHprint update staged by the agent
+; The unprivileged daemon (tbhprint.service) downloads + sha256-verifies
+; an update .deb into /var/lib/tbhprint/update/ and then touches this
+; marker file - it cannot install the .deb itself (no root), so root
+; picks the install up from here. See docs/DISTRIBUTION_DESIGN.md section 4.
+
+[Path]
+PathExists=/var/lib/tbhprint/update/requested
+
+[Install]
+WantedBy=multi-user.target

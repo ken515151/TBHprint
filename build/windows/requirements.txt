@@ -1,0 +1,19 @@
+# Pinned runtime dependencies for the bundled Windows installer.
+#
+# These are separate from pyproject.toml's dependency list (which is out of
+# scope for the packaging worktree - the app-code builder owns it). Pins are
+# exact versions, each confirmed to publish a win_amd64 wheel for CPython
+# 3.12 at the time this file was written (2026-09-01), resolved with:
+#   pip download --no-deps --only-binary=:all: \
+#       --platform win_amd64 --python-version 3.12 <name>==<version>
+#
+# Bump deliberately, re-run the same resolution check, and update this
+# comment's date when you do.
+
+requests==2.32.3
+websockets==17.1
+pystray==0.19.5
+Pillow==12.3.0
+pypdfium2==5.13.0
+pywin32==312
+keyring==25.7.0

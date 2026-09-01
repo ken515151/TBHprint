@@ -1,0 +1,13 @@
+#!/bin/sh
+# prerm - runs before files are removed (both plain "remove" and "purge").
+set -e
+
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+        systemctl disable --now tbhprint-update.timer tbhprint-update.path tbhprint.service 2>/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

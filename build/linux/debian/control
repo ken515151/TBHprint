@@ -1,0 +1,18 @@
+Package: tbhprint
+Version: __VERSION__
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), python3-venv, python3-tk, python3-pil, python3-pil.imagetk, python3-gi, gir1.2-ayatanaappindicator3-0.1, libayatana-appindicator3-1, adduser
+Recommends: gnome-shell-extension-appindicator
+Maintainer: Ken Peddie <kpeddie51@gmail.com>
+Homepage: https://techbenchhub.co.uk
+Description: TechBenchHub print agent
+ TBHprint prints ticket labels, booking sheets, invoices and other
+ documents queued by TechBenchHub straight to this PC's printers, over
+ standard OS printer drivers only (CUPS on Linux) - no raw ESC/POS, no
+ printer-specific code.
+ .
+ Runs as a systemd service (tbhprint.service) with a tray applet
+ (autostarted per desktop session) for pairing, routing documents to
+ printers, print history and logs.

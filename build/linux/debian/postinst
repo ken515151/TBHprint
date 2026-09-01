@@ -1,0 +1,55 @@
+#!/bin/sh
+# postinst - runs after files are unpacked (configure step and
+# re-configure-on-upgrade). See docs/DISTRIBUTION_DESIGN.md section 6.
+set -e
+
+case "$1" in
+  configure)
+    # A dedicated system user/group, not the desktop user - the agent
+    # runs whether or not anyone is logged in (that's the point of it
+    # being a systemd service rather than a login-session program).
+    if ! getent passwd tbhprint >/dev/null; then
+        adduser --system --group --home /var/lib/tbhprint tbhprint
+    fi
+    # Supplementary (not primary - see packaging/tbhprint.service's own
+    # comment on why) group membership for CUPS access.
+    usermod -aG lp tbhprint
+
+    # So the person who ran `apt install` can reach the control socket
+    # and read the config file (both group "tbhprint", not "lp" - a
+    # desktop user talking to the agent's own control channel needs no
+    # raw CUPS access). Best-effort: a CI/Docker install has no
+    # SUDO_USER and there is nothing sensible to add here.
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && getent passwd "$SUDO_USER" >/dev/null 2>&1; then
+        if usermod -aG tbhprint "$SUDO_USER"; then
+            echo "tbhprint: added $SUDO_USER to the 'tbhprint' group - log out and back in before the Settings window can reach the agent." >&2
+        fi
+    fi
+
+    mkdir -p /etc/tbhprint
+    if [ -f /etc/tbhprint/config.json ]; then
+        chown root:tbhprint /etc/tbhprint/config.json
+        chmod 0660 /etc/tbhprint/config.json
+    fi
+
+    # --system-site-packages: python3-tk / python3-pil / python3-pil.imagetk
+    # / python3-gi are apt packages (Depends above), not pip-installable
+    # portably - the venv sees them via the system site-packages instead
+    # of vendoring compiled wheels for them.
+    if [ ! -x /opt/tbhprint/venv/bin/python ]; then
+        python3 -m venv --system-site-packages /opt/tbhprint/venv
+    fi
+    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade /opt/tbhprint/app
+
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        systemctl enable --now tbhprint.service
+        systemctl enable --now tbhprint-update.path
+        systemctl enable --now tbhprint-update.timer
+    else
+        echo "tbhprint: systemd is not running (container install?) - services were not enabled/started. Run 'systemctl enable --now tbhprint.service tbhprint-update.path tbhprint-update.timer' once systemd is available." >&2
+    fi
+    ;;
+esac
+
+exit 0

@@ -1,0 +1,31 @@
+#!/bin/sh
+# postrm - runs after files are removed. On "purge", also drop the venv,
+# all state (print history, logs, pairing) and the system user - a plain
+# "remove" keeps all of that in case of a reinstall.
+set -e
+
+case "$1" in
+  purge)
+    # Everything under /opt/tbhprint is build/install output (the venv,
+    # the vendored wheels, and a copy of the app source pip built a
+    # wheel from) - none of it is user state, and pip's build step
+    # leaves __pycache__/*.egg-info behind that dpkg never tracked, so a
+    # plain "dpkg removes the files it installed" pass leaves a
+    # non-empty (and thus not auto-removed) directory. Just take the
+    # whole tree.
+    rm -rf /opt/tbhprint
+    rm -rf /var/lib/tbhprint
+    if getent passwd tbhprint >/dev/null; then
+        deluser --quiet tbhprint || true
+    fi
+    ;;
+  remove)
+    rm -rf /opt/tbhprint
+    ;;
+esac
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi
+
+exit 0

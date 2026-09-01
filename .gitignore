@@ -1,7 +1,14 @@
 __pycache__/
 *.pyc
 *.egg-info/
-build/
+# NOT the whole build/ tree any more - build/windows/ and build/linux/
+# are this repo's packaging scripts (tracked). Only setuptools' own
+# scratch output under build/ (created by `pip install .`/`setup.py
+# build`, running right at the repo root) is ignored.
+build/lib/
+build/bdist.*/
+build/scripts-*/
+build/temp.*/
 dist/
 .pytest_cache/
 .venv/

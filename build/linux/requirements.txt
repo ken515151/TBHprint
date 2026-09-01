@@ -1,0 +1,43 @@
+# Pure-python wheels vendored into /opt/tbhprint/wheels for the .deb (the
+# venv is created with --system-site-packages, so Pillow/tkinter/GI come
+# from the distro instead - see docs/DISTRIBUTION_DESIGN.md section 6 and
+# build/linux/build.sh).
+#
+# Every one of these MUST resolve to a "py3-none-any" / "py2.py3-none-any"
+# wheel - if a version bump ever only ships a platform-specific wheel
+# (this happened going from websockets 15.x to 17.x, which dropped the
+# pure-python wheel and Python 3.10 support in the same release), build.sh
+# must fail rather than silently vendor a wheel for the wrong CPU
+# architecture. Re-validate with, e.g.:
+#   pip download --no-deps --only-binary=:all: --implementation py \
+#       --abi none --platform any <name>==<version>
+#
+# Pins current as of 2026-09-01. requests/websockets/pystray/keyring are
+# top-level (matching pyproject.toml's own floors); the rest are their
+# transitive dependencies, pinned here too so the vendored set is
+# reproducible rather than "whatever pip resolves today".
+
+requests==2.32.3
+websockets==15.0.1
+pystray==0.19.5
+keyring==25.7.0
+
+# --- transitive (pure-python) ---
+certifi==2026.7.22
+charset-normalizer==3.5.1
+idna==3.19
+urllib3==2.7.0
+jaraco.classes==3.4.0
+jaraco.context==6.1.2
+jaraco.functools==4.6.0
+more-itertools==11.1.0
+pywin32-ctypes==0.2.3
+
+# --- build-time only (not a runtime import, but pip install of
+#     /opt/tbhprint/app in postinst does a PEP 517 build, which spins up
+#     an isolated build env and installs pyproject.toml's own
+#     [build-system] requires = ["setuptools>=68"] into it - --no-index
+#     --find-links is inherited into that isolated install too, so it
+#     needs to find setuptools/wheel right here or postinst fails) ---
+setuptools==75.8.0
+wheel==0.45.1

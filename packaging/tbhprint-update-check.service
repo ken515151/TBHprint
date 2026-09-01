@@ -1,0 +1,14 @@
+[Unit]
+Description=Ask TechBenchHub whether a TBHprint update is available
+; Triggered daily by tbhprint-update.timer, as root (per
+; docs/DISTRIBUTION_DESIGN.md section 4: "A daily tbhprint-update.timer
+; also triggers the check via `tbhprint update --check-only` as root").
+; This is a SEPARATE unit from tbhprint-update.service (which installs an
+; already-staged update) because the path unit and the timer unit each
+; need their own target service under systemd's model - folding both
+; actions into one .service would leave one of the two triggers with
+; nothing correct to activate.
+
+[Service]
+Type=oneshot
+ExecStart=/opt/tbhprint/venv/bin/python -m tbhprint update --check-only

@@ -4,7 +4,7 @@ One JSON file; the daemon is its single writer (the CLI edits it through
 the control socket while the daemon runs, directly when it doesn't).
 
 Locations (override with --config):
-  Windows: %LOCALAPPDATA%\TBHprint\config.json (per-user install)
+  Windows: %LOCALAPPDATA%/TBHprint/config.json (per-user install; backslashes in practice)
   Linux:   /etc/tbhprint/config.json
   macOS:   /Library/Application Support/TBHprint/config.json
 

@@ -15,6 +15,19 @@ All requests: `Authorization: Bearer <token>` (except pair),
 - 422 `{error: "unknown_code", message}` — unknown, used or expired code
 - Throttled 10/min per IP. Codes are 8 characters, single use, 10 minutes.
 
+## Update
+
+`GET /api/print/v1/update?platform=windows|linux&version=<current>`
+
+- 200 `{version, url, sha256, notes}` — a newer build exists (`url` is
+  same-host, checked with the document-download allowlist; `sha256`
+  verified before install)
+- 200 `{version: null}` — already current, or no update feed configured
+
+Checked after the first successful `status`, every 6 hours, and on
+`tbhprint update` / the tray's "Check for updates". Never GitHub — this
+repo is private and the agent only ever holds its own bearer token.
+
 ## Job JSON (identical on the websocket and the REST list)
 
 ```json

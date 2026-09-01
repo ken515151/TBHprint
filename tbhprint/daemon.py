@@ -12,7 +12,7 @@ import os
 import threading
 from typing import Any
 
-from . import __version__, api as apimod, config as cfgmod
+from . import __version__, api as apimod, config as cfgmod, update as updatemod
 from .backends import PrintError, get_backend
 from .pipeline import PayloadError, Pipeline, job_from_wire
 from .store import Store
@@ -33,11 +33,13 @@ class RingBufferHandler(logging.Handler):
 
 
 class Daemon:
-    def __init__(self, cfg: cfgmod.Config, store: Store, pipeline: Pipeline, config_path: str):
+    def __init__(self, cfg: cfgmod.Config, store: Store, pipeline: Pipeline, config_path: str,
+                state_dir: str | None = None):
         self.cfg = cfg
         self.store = store
         self.pipeline = pipeline
         self.config_path = config_path
+        self.state_dir = state_dir or cfgmod.default_state_dir()
         self.client: apimod.Client | None = apimod.Client(cfg.server) if cfg.server.is_paired else None
         self.pipeline.set_client(self.client)
         # unpaired | starting | connected | degraded | disconnected | error
@@ -48,6 +50,8 @@ class Daemon:
         self.reverb: ReverbTransport | None = None
         self.poller: PollerTransport | None = None
         self._stop_event = threading.Event()
+        self._update_stop = threading.Event()
+        self._update_thread: threading.Thread | None = None
 
     # -- transports -------------------------------------------------------
 
@@ -84,6 +88,7 @@ class Daemon:
             self.poller.set_active(True)
         # Always one catch-up at start so nothing queued while we were down is missed.
         threading.Thread(target=self._safe_catch_up, name="startup-catch-up", daemon=True).start()
+        self.start_update_checker()
 
     def _channel_auth(self, socket_id: str, channel: str) -> str:
         if self.client is None:
@@ -157,6 +162,23 @@ class Daemon:
     def catch_up(self) -> int:
         return self.poller.sweep_once() if self.poller else 0
 
+    def pair(self, server_url: str, code: str, name: str | None) -> dict[str, Any]:
+        """Redeem a pairing code and become this agent - the daemon is the
+        config's single writer, so pairing (like every other config write)
+        goes through here; `tbhprint pair` and the tray's Settings window
+        both call this over the control channel when a daemon is running."""
+        server_url = server_url.rstrip("/")
+        if not server_url.startswith(("http://", "https://")):
+            server_url = "https://" + server_url
+        agent_name = name or cfgmod.machine_name()
+        data = apimod.pair(server_url, code, agent_name)
+        self.cfg.server = cfgmod.server_from_pairing(data, server_url, agent_name)
+        cfgmod.save(self.cfg, self.config_path)
+        log.info("paired as %r with %s (agent %s)", self.cfg.server.agent_name, server_url,
+                 self.cfg.server.agent_uuid)
+        self.restart_transports()
+        return self.cfg.redacted_dict()
+
     def update_config(self, update: dict[str, Any]) -> None:
         new_cfg = cfgmod.apply_update(self.cfg, update)
         cfgmod.save(new_cfg, self.config_path)
@@ -189,6 +211,47 @@ class Daemon:
         self.state = "starting" if self.cfg.server.is_paired else "unpaired"
         self.start_transports()
 
+    # -- auto-update ----------------------------------------------------------
+
+    def start_update_checker(self) -> None:
+        """Checked after the first successful `status` (here: once the
+        transport reaches "connected", or after a short bounded wait if it
+        never does), then every 6h. A reload/re-pair may call this again -
+        `check_for_update()` reads `self.client` fresh each cycle, so one
+        running thread is always enough."""
+        if not self.cfg.server.is_paired or (self._update_thread and self._update_thread.is_alive()):
+            return
+        self._update_stop.clear()
+        self._update_thread = threading.Thread(target=self._update_loop, name="update-checker", daemon=True)
+        self._update_thread.start()
+
+    def _update_loop(self) -> None:
+        waited = 0.0
+        while not self._update_stop.is_set() and self.state != "connected" and waited < 30:
+            if self._update_stop.wait(1):
+                return
+            waited += 1
+        self.check_for_update()
+        while not self._update_stop.wait(updatemod.CHECK_INTERVAL_S):
+            self.check_for_update()
+
+    def check_for_update(self, *, check_only: bool = False) -> dict[str, Any] | None:
+        if self.client is None:
+            return None
+        if check_only:
+            try:
+                manifest = updatemod.check(self.client)
+            except Exception as exc:
+                log.warning("update check failed: %s", exc)
+                return {"version": None}
+            return {"version": manifest.version, "notes": manifest.notes} if manifest else {"version": None}
+        manifest = updatemod.check_and_install(
+            self.client, os.path.join(self.state_dir, "update"),
+            is_job_active=lambda: bool(self.store.active_jobs()),
+            linux_update_dir=self.cfg.update.dir,
+            on_installing=lambda m: log.info("update %s installing", m.version))
+        return {"version": manifest.version, "notes": manifest.notes} if manifest else {"version": None}
+
     # -- maintenance -------------------------------------------------------
 
     def maintenance_loop(self) -> None:
@@ -200,6 +263,9 @@ class Daemon:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._update_stop.set()
+        if self._update_thread:
+            self._update_thread.join(timeout=5)
         for transport in (self.reverb, self.poller):
             if transport:
                 transport.stop()
@@ -226,5 +292,5 @@ def build(config_path: str, *, state_dir: str | None = None, dry_run: bool = Fal
     backend = get_backend(backend_name or cfg.backend)
     pipeline = Pipeline(cfg, store, None, spool_dir=os.path.join(state_dir, "spool"),
                         backend=backend, dry_run=dry_run)
-    daemon = Daemon(cfg, store, pipeline, config_path=config_path)
+    daemon = Daemon(cfg, store, pipeline, config_path=config_path, state_dir=state_dir)
     return daemon, store, pipeline

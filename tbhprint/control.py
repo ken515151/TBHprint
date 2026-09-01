@@ -23,7 +23,7 @@ UNIX_SOCKET_PATH = "/run/tbhprint/control.sock"
 
 COMMANDS = ("status", "recent_jobs", "history", "pause", "resume", "test_print",
             "cancel_job", "reprint", "get_log_tail", "get_config", "set_config",
-            "reload", "printers", "catch_up")
+            "reload", "printers", "catch_up", "pair", "update")
 
 
 def default_address() -> str | tuple[str, int]:
@@ -110,6 +110,16 @@ class Dispatcher:
 
     def _cmd_catch_up(self, req):
         return {"jobs": self.daemon.catch_up()}
+
+    def _cmd_pair(self, req):
+        url = req.get("url")
+        code = req.get("code")
+        if not url or not code:
+            raise ValueError("pair needs 'url' and 'code'")
+        return self.daemon.pair(url, code, req.get("name"))
+
+    def _cmd_update(self, req):
+        return self.daemon.check_for_update(check_only=bool(req.get("check_only")))
 
 
 class ControlServer:

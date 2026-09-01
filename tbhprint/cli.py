@@ -1,33 +1,36 @@
 """`tbhprint` command line.
 
-  tbhprint run [--dry-run] [--verbose]          the agent itself (foreground)
-  tbhprint pair <server url> <code> --name ...  enrol this PC with a shop
-  tbhprint printers                              printers the OS knows
+  tbhprint run [--supervised] [--dry-run] [--verbose]   the agent itself (foreground)
+  tbhprint pair <server url> <code> --name ...           enrol this PC with a shop
+  tbhprint printers                                       printers the OS knows
   tbhprint route <type> --printer <name> [--copies N] [--duplex ...] [--disable]
-  tbhprint routes                                show routing
+  tbhprint routes                                         show routing
   tbhprint status | history | reprint <uuid> | pause | resume | test-print <printer> | catch-up
-  tbhprint service install|remove                Windows scheduled task at logon / systemd hints
+  tbhprint tray [--open WINDOW]                           tray icon (Windows: also supervises the agent)
+  tbhprint settings                                       open Settings in the running tray, else start it
+  tbhprint update [--check-only]                          check for (and install) an agent update
+  tbhprint quit                                            stop the tray + agent
+  tbhprint service                                         Linux: systemd install hints; Windows: n/a
+  tbhprint --version
 
-Commands other than run/pair/service talk to the running agent over the
-control channel; route/printers fall back to editing the config directly
-when the agent is not running.
+Commands other than run/pair/tray/settings/service talk to the running
+agent over the control channel; route/printers/pair fall back to editing
+the config directly when the agent is not running.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
 
 import requests
 
-from . import __version__, api as apimod, config as cfgmod, control
+from . import __version__, api as apimod, config as cfgmod, control, singleinstance
 from .backends import PrintError, get_backend
 from .daemon import build
 
@@ -41,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("run", help="run the agent in the foreground")
+    p.add_argument("--supervised", action="store_true",
+                   help="this run is owned by the tray's supervisor (Windows) - informational")
     p.add_argument("--dry-run", action="store_true", help="fetch + route + log, never print")
     p.add_argument("--verbose", "-v", action="store_true")
     p.add_argument("--state-dir", default=None)
@@ -80,15 +85,21 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("log")
     p.add_argument("-n", type=int, default=50)
 
-    p = sub.add_parser("tray", help="tray applet (Windows: runs the agent embedded unless one is already running)")
-    p.add_argument("--embedded", dest="embedded", action="store_true", default=None, help="run the agent inside the applet process")
-    p.add_argument("--no-embedded", dest="embedded", action="store_false", help="only connect to a running agent")
-    p.add_argument("--dry-run", action="store_true")
+    p = sub.add_parser("tray", help="tray icon (Windows: also supervises the agent as a child process)")
+    p.add_argument("--open", dest="open_window", default=None,
+                   choices=("settings", "status", "history", "log"),
+                   help="open this window (forwarded to an already-running tray, if any)")
+    p.add_argument("--dry-run", action="store_true", help="passed to the agent this tray supervises (Windows)")
     p.add_argument("--verbose", "-v", action="store_true")
     p.add_argument("--state-dir", default=None)
 
-    p = sub.add_parser("service", help="install/remove the background service")
-    p.add_argument("action", choices=("install", "remove"))
+    sub.add_parser("settings", help="open Settings in the running tray, else start it")
+    p = sub.add_parser("update", help="check for (and install) an agent update")
+    p.add_argument("--check-only", action="store_true", help="only check - never download or install")
+    sub.add_parser("quit", help="stop the tray + agent")
+
+    p = sub.add_parser("service", help="Linux: systemd install hints (Windows: the installer owns startup)")
+    p.add_argument("action", nargs="?", choices=("install", "remove"), default=None)
 
     args = parser.parse_args(argv)
     config_path = args.config or cfgmod.default_config_path()
@@ -98,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         "routes": cmd_routes, "default-printer": cmd_default_printer, "status": cmd_status,
         "history": cmd_history, "reprint": cmd_reprint, "pause": cmd_pause, "resume": cmd_resume,
         "catch-up": cmd_catch_up, "test-print": cmd_test_print, "log": cmd_log, "service": cmd_service,
-        "tray": cmd_tray,
+        "tray": cmd_tray, "settings": cmd_settings, "update": cmd_update, "quit": cmd_quit,
     }[args.cmd]
     try:
         return handler(args, config_path)
@@ -115,77 +126,125 @@ def main(argv: list[str] | None = None) -> int:
 def cmd_run(args, config_path: str) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    daemon, store, pipeline = build(config_path, state_dir=args.state_dir, dry_run=args.dry_run,
-                                    backend_name=args.backend)
-    server = control.ControlServer(control.Dispatcher(daemon))
-    server.start()
-    pipeline.start()
-    daemon.start_transports()
-    threading.Thread(target=daemon.maintenance_loop, name="maintenance", daemon=True).start()
+    state_dir = args.state_dir or cfgmod.default_state_dir()
+    lock = singleinstance.SingleInstanceLock(singleinstance.AGENT_MUTEX_NAME,
+                                             lock_path=os.path.join(state_dir, "agent.lock"))
+    try:
+        lock.acquire()
+    except singleinstance.AlreadyRunning:
+        log.error("another tbhprint agent is already running against state dir %s - exiting", state_dir)
+        return 1
+    try:
+        daemon, store, pipeline = build(config_path, state_dir=state_dir, dry_run=args.dry_run,
+                                        backend_name=args.backend)
+        server = control.ControlServer(control.Dispatcher(daemon))
+        server.start()
+        pipeline.start()
+        daemon.start_transports()
+        threading.Thread(target=daemon.maintenance_loop, name="maintenance", daemon=True).start()
 
-    stop = threading.Event()
+        stop = threading.Event()
 
-    def _term(signum, frame):
-        log.info("received signal %d, shutting down", signum)
-        stop.set()
+        def _term(signum, frame):
+            log.info("received signal %d, shutting down", signum)
+            stop.set()
 
-    signal.signal(signal.SIGTERM, _term)
-    signal.signal(signal.SIGINT, _term)
-    log.info("tbhprint %s up (paired=%s dry_run=%s)", __version__, daemon.cfg.server.is_paired, args.dry_run)
-    while not stop.is_set():
-        time.sleep(0.5)
-    server.stop()
-    daemon.stop()
-    store.close()
-    return 0
+        signal.signal(signal.SIGTERM, _term)
+        signal.signal(signal.SIGINT, _term)
+        log.info("tbhprint %s up (paired=%s dry_run=%s supervised=%s)",
+                 __version__, daemon.cfg.server.is_paired, args.dry_run, args.supervised)
+        while not stop.is_set():
+            time.sleep(0.5)
+        server.stop()
+        daemon.stop()
+        store.close()
+        return 0
+    finally:
+        lock.release()
 
 
-# -- tray --------------------------------------------------------------------------
+# -- tray / settings ---------------------------------------------------------------
 
 def cmd_tray(args, config_path: str) -> int:
     try:
-        from .applet.tray import main as tray_main
+        from .applet import tray as tray_mod
     except ImportError as exc:
         print(f"error: the tray applet needs pystray + Pillow (pip install 'tbhprint[tray]'): {exc}", file=sys.stderr)
         return 1
-    return tray_main(config_path, embedded=args.embedded, state_dir=args.state_dir,
-                     dry_run=args.dry_run, verbose=args.verbose)
+    return tray_mod.main(config_path, state_dir=args.state_dir, dry_run=args.dry_run,
+                         verbose=args.verbose, open_window=args.open_window)
+
+
+def cmd_settings(args, config_path: str) -> int:
+    from . import traychannel
+    if traychannel.send("open", window="settings"):
+        return 0
+    try:
+        from .applet import tray as tray_mod
+    except ImportError as exc:
+        print(f"error: the tray applet needs pystray + Pillow (pip install 'tbhprint[tray]'): {exc}", file=sys.stderr)
+        return 1
+    return tray_mod.main(config_path, open_window="settings")
+
+
+def cmd_quit(args, config_path: str) -> int:
+    from . import traychannel
+    if traychannel.send("quit"):
+        print("Stopping TBHprint (tray + agent).")
+        return 0
+    print("TBHprint is not running.")
+    return 1
+
+
+# -- update ------------------------------------------------------------------------
+
+def cmd_update(args, config_path: str) -> int:
+    data = _control(lambda c: c.call("update", check_only=args.check_only))
+    version = (data or {}).get("version")
+    if not version:
+        print("Already up to date.")
+        return 0
+    notes = f": {data['notes']}" if data.get("notes") else ""
+    print(f"Update {version} available{notes}.")
+    if args.check_only:
+        print("(--check-only: not installing)")
+    else:
+        print("Installing when no job is active (see `tbhprint log` for progress).")
+    return 0
 
 
 # -- pair --------------------------------------------------------------------------
 
 def cmd_pair(args, config_path: str) -> int:
-    name = args.name or _machine_name()
+    """Pairing goes through the daemon (the config's single writer) when
+    one is reachable - `tbhprint pair` and the tray's Settings window share
+    the same `Daemon.pair()` code. Falls back to writing the config file
+    directly only when no daemon answers."""
+    name = args.name or cfgmod.machine_name()
     server_url = args.server_url.rstrip("/")
     if not server_url.startswith(("http://", "https://")):
         server_url = "https://" + server_url
-    data = apimod.pair(server_url, args.code, name)
+
+    client = control.ControlClient(timeout=30)
     try:
-        cfg = cfgmod.load(config_path)
-    except cfgmod.ConfigError:
-        cfg = cfgmod.Config()
-    reverb = data.get("reverb") or {}
-    cfg.server = cfgmod.Server(
-        url=server_url,
-        token=str(data["token"]),
-        agent_uuid=str(data["agent_uuid"]),
-        agent_name=str(data.get("name") or name),
-        tenant=str(data.get("tenant") or ""),
-        channel=str(data.get("channel") or ""),
-        reverb=cfgmod.Reverb(key=str(reverb.get("key") or ""), host=str(reverb.get("host") or ""),
-                             port=int(reverb.get("port") or 443), scheme=str(reverb.get("scheme") or "https")),
-    )
-    cfgmod.save(cfg, config_path)
-    print(f"Paired as \"{cfg.server.agent_name}\" with {server_url} (agent {cfg.server.agent_uuid}).")
+        redacted = client.call("pair", url=server_url, code=args.code, name=name)
+    except OSError:
+        redacted = None  # no daemon running - pair directly below
+    finally:
+        client.close()
+
+    if redacted is None:
+        data = apimod.pair(server_url, args.code, name)
+        cfg = _load_or_empty(config_path)
+        cfg.server = cfgmod.server_from_pairing(data, server_url, name)
+        cfgmod.save(cfg, config_path)
+        redacted = cfg.redacted_dict()
+
+    server_info = redacted["server"]
+    print(f"Paired as \"{server_info['agent_name']}\" with {server_url} (agent {server_info['agent_uuid']}).")
     print(f"Config: {config_path}")
-    _try_control(lambda c: c.call("reload"))
     print("Next: `tbhprint printers`, then `tbhprint route ticket_label --printer \"<name>\"`, then `tbhprint run`.")
     return 0
-
-
-def _machine_name() -> str:
-    import socket
-    return socket.gethostname() or "Print agent"
 
 
 # -- printers / routing ------------------------------------------------------------
@@ -311,26 +370,9 @@ def cmd_log(args, config_path: str) -> int:
 
 def cmd_service(args, config_path: str) -> int:
     if sys.platform.startswith("win"):
-        task = "TBHprint"
-        if args.action == "install":
-            pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-            exe = pythonw if os.path.exists(pythonw) else sys.executable
-            # The tray applet with the agent embedded: one logon task gives
-            # the desk both the icon and the printing.
-            command = f'"{exe}" -m tbhprint --config "{config_path}" tray --embedded'
-            proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/SC", "ONLOGON",
-                                   "/RL", "LIMITED", "/TR", command], capture_output=True, text=True)
-            if proc.returncode != 0:
-                print(proc.stderr.strip() or proc.stdout.strip(), file=sys.stderr)
-                return 1
-            subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True, text=True)
-            print(f"Installed scheduled task '{task}' (tray applet + agent at logon as this user, started now).")
-            print("Printers on Windows are per-user, so the agent runs in your session - keep this PC signed in.")
-        else:
-            subprocess.run(["schtasks", "/End", "/TN", task], capture_output=True, text=True)
-            proc = subprocess.run(["schtasks", "/Delete", "/F", "/TN", task], capture_output=True, text=True)
-            print("Removed." if proc.returncode == 0 else (proc.stderr.strip() or proc.stdout.strip()))
-        return 0
+        print("On Windows the installer owns startup (Start Menu entry / logon tray) -", file=sys.stderr)
+        print("there is nothing for `tbhprint service` to install or remove here.", file=sys.stderr)
+        return 1
     print("Linux/macOS: install the systemd unit from packaging/tbhprint.service:")
     print("  sudo useradd -r -G lp tbhprint; sudo mkdir -p /etc/tbhprint /var/lib/tbhprint")
     print("  sudo cp packaging/tbhprint.service /etc/systemd/system/ && sudo systemctl enable --now tbhprint")

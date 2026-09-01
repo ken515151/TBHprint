@@ -133,6 +133,11 @@ class Retention:
 
 
 @dataclass
+class UpdateSettings:
+    dir: str = "/var/lib/tbhprint/update"   # Linux only; Windows installs straight from the state dir
+
+
+@dataclass
 class Config:
     server: Server = field(default_factory=Server)
     transport: Transport = field(default_factory=Transport)
@@ -142,6 +147,7 @@ class Config:
     default_printer: str | None = None
     timeouts: Timeouts = field(default_factory=Timeouts)
     retention: Retention = field(default_factory=Retention)
+    update: UpdateSettings = field(default_factory=UpdateSettings)
 
     def route_for(self, document_type: str) -> Route | None:
         route = self.routing.get(document_type)
@@ -190,6 +196,7 @@ class Config:
             "default_printer": self.default_printer,
             "timeouts": vars(self.timeouts).copy(),
             "retention": vars(self.retention).copy(),
+            "update": vars(self.update).copy(),
         }
 
     def redacted_dict(self) -> dict[str, Any]:
@@ -226,6 +233,7 @@ def from_dict(data: dict[str, Any]) -> Config:
         default_printer=data.get("default_printer"),
         timeouts=_build(Timeouts, data.get("timeouts", {}), "timeouts"),
         retention=_build(Retention, data.get("retention", {}), "retention"),
+        update=_build(UpdateSettings, data.get("update", {}), "update"),
     )
     cfg.validate()
     return cfg
@@ -264,6 +272,28 @@ def save(cfg: Config, path: str | None = None) -> None:
     except OSError:
         pass
     os.replace(tmp, path)
+
+
+def machine_name() -> str:
+    import socket
+    return socket.gethostname() or "Print agent"
+
+
+def server_from_pairing(data: dict[str, Any], server_url: str, agent_name: str) -> Server:
+    """The `POST /pair` response -> a `Server` section, shared by the CLI's
+    `pair`, the daemon's `pair` control command and the tray's Settings
+    window - one place that knows the pairing payload's shape."""
+    reverb = data.get("reverb") or {}
+    return Server(
+        url=server_url,
+        token=str(data["token"]),
+        agent_uuid=str(data["agent_uuid"]),
+        agent_name=str(data.get("name") or agent_name),
+        tenant=str(data.get("tenant") or ""),
+        channel=str(data.get("channel") or ""),
+        reverb=Reverb(key=str(reverb.get("key") or ""), host=str(reverb.get("host") or ""),
+                     port=int(reverb.get("port") or 443), scheme=str(reverb.get("scheme") or "https")),
+    )
 
 
 def apply_update(cfg: Config, update: dict[str, Any]) -> Config:

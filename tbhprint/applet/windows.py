@@ -15,7 +15,7 @@ from typing import Any
 from .. import api as apimod
 from .. import config as cfgmod
 from .. import control
-from .model import fmt_time, job_row, routing_rows, routing_update, state_label
+from .model import job_row, routing_rows, routing_update, state_label
 
 PAD = {"padx": 8, "pady": 4}
 
@@ -198,24 +198,27 @@ class SettingsWindow(_Window):
         self.pair_status.set("Pairing…")
 
         def work():
+            # The daemon owns pairing (it is the config's single writer) -
+            # fall back to a direct config write only when it is unreachable.
             try:
-                data = apimod.pair(url, code, name)
-                cfg = _load_or_empty(self.app.config_path)
-                reverb = data.get("reverb") or {}
-                cfg.server = cfgmod.Server(
-                    url=url, token=str(data["token"]), agent_uuid=str(data["agent_uuid"]),
-                    agent_name=str(data.get("name") or name), tenant=str(data.get("tenant") or ""),
-                    channel=str(data.get("channel") or ""),
-                    reverb=cfgmod.Reverb(key=str(reverb.get("key") or ""), host=str(reverb.get("host") or ""),
-                                         port=int(reverb.get("port") or 443), scheme=str(reverb.get("scheme") or "https")),
-                )
-                cfgmod.save(cfg, self.app.config_path)
-                self.app.try_call("reload")
-                message = f"Paired as \"{cfg.server.agent_name}\" with {url}"
+                redacted = self.app.call("pair", url=url, code=code, name=name)
+                agent_name = redacted["server"]["agent_name"]
+                message = f"Paired as \"{agent_name}\" with {url}"
                 ok = True
-            except Exception as exc:  # ApiError, RequestException, ConfigError
+            except control.ControlError as exc:
                 message = f"Pairing failed: {exc}"
                 ok = False
+            except OSError:
+                try:
+                    data = apimod.pair(url, code, name)
+                    cfg = _load_or_empty(self.app.config_path)
+                    cfg.server = cfgmod.server_from_pairing(data, url, name)
+                    cfgmod.save(cfg, self.app.config_path)
+                    message = f"Paired as \"{cfg.server.agent_name}\" with {url}"
+                    ok = True
+                except Exception as exc:  # ApiError, RequestException, ConfigError
+                    message = f"Pairing failed: {exc}"
+                    ok = False
             self.after(0, lambda: self._paired(ok, message))
 
         threading.Thread(target=work, daemon=True).start()

@@ -1,11 +1,11 @@
-# TBRprint ↔ TechBenchHub protocol
+# TBHprint ↔ TechBenchHub protocol
 
 The server side lives in the TechBenchHub repo (`docs/PRINT_AGENT_DESIGN.md`,
 `routes/api.php` "Print agent API", `routes/channels.php`). This is the
 contract the agent implements. Versioned by the `/v1` path.
 
 All requests: `Authorization: Bearer <token>` (except pair),
-`X-TBRprint-Version`, `X-TBRprint-Platform`. JSON in, JSON out.
+`X-TBHprint-Version`, `X-TBHprint-Platform`. JSON in, JSON out.
 
 ## Pair
 

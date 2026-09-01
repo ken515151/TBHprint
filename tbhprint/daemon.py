@@ -19,7 +19,7 @@ from .store import Store
 from .transport_poll import PollerTransport
 from .transport_reverb import ReverbTransport
 
-log = logging.getLogger("tbrprint.daemon")
+log = logging.getLogger("tbhprint.daemon")
 
 
 class RingBufferHandler(logging.Handler):
@@ -53,7 +53,7 @@ class Daemon:
 
     def start_transports(self) -> None:
         if not self.cfg.server.is_paired:
-            log.info("not paired yet - run `tbrprint pair <server url> <code>`")
+            log.info("not paired yet - run `tbhprint pair <server url> <code>`")
             self.state = "unpaired"
             return
         mode = self.cfg.transport.mode

@@ -3,15 +3,15 @@ import threading
 
 import pytest
 
-from tbrprint import api as apimod
-from tbrprint import config as cfgmod
-from tbrprint import pipeline as pl
-from tbrprint.backends import PrintError
-from tbrprint.store import Store
+from tbhprint import api as apimod
+from tbhprint import config as cfgmod
+from tbhprint import pipeline as pl
+from tbhprint.backends import PrintError
+from tbhprint.store import Store
 
 
 class FakeBackend:
-    __name__ = "tbrprint.backends.cups"
+    __name__ = "tbhprint.backends.cups"
     PrintError = PrintError
 
     def __init__(self, fail_times=0):
@@ -188,6 +188,6 @@ def test_reprint_reuses_spool_and_is_local_only(tmp_path):
 def test_test_print_writes_and_submits(tmp_path):
     cfg, store, backend, client, pipe = make(tmp_path)
     assert pipe.test_print("lj") is True
-    assert backend.calls[0]["title"] == "TBRprint test page"
+    assert backend.calls[0]["title"] == "TBHprint test page"
     assert os.path.exists(backend.calls[0]["path"])
     assert pipe.test_print("nope") is False

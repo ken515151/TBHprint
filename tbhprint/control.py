@@ -1,6 +1,6 @@
-"""Control channel: newline-delimited JSON, used by the `tbrprint` CLI.
+"""Control channel: newline-delimited JSON, used by the `tbhprint` CLI.
 
-UNIX socket on Linux/macOS (/run/tbrprint/control.sock); loopback TCP on
+UNIX socket on Linux/macOS (/run/tbhprint/control.sock); loopback TCP on
 Windows (127.0.0.1:47831) where AF_UNIX is not reliably available. Only
 local processes can reach either. Carried over from SyncroPrint.
 """
@@ -15,11 +15,11 @@ import sys
 import threading
 from typing import Any
 
-log = logging.getLogger("tbrprint.control")
+log = logging.getLogger("tbhprint.control")
 
 MAX_LINE = 256 * 1024
 WINDOWS_ADDRESS = ("127.0.0.1", 47831)
-UNIX_SOCKET_PATH = "/run/tbrprint/control.sock"
+UNIX_SOCKET_PATH = "/run/tbhprint/control.sock"
 
 COMMANDS = ("status", "recent_jobs", "history", "pause", "resume", "test_print",
             "cancel_job", "reprint", "get_log_tail", "get_config", "set_config",

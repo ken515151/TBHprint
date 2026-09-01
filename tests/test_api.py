@@ -2,8 +2,8 @@ from unittest import mock
 
 import pytest
 
-from tbrprint import api as apimod
-from tbrprint import config as cfgmod
+from tbhprint import api as apimod
+from tbhprint import config as cfgmod
 
 
 def server(url="https://shop.techbenchhub.co.uk"):
@@ -47,8 +47,8 @@ def test_allowed_document_host():
 def test_headers_carry_bearer_and_version():
     headers = apimod._headers("tok")
     assert headers["Authorization"] == "Bearer tok"
-    assert headers["X-TBRprint-Version"]
-    assert headers["X-TBRprint-Platform"] in ("windows", "linux", "macos")
+    assert headers["X-TBHprint-Version"]
+    assert headers["X-TBHprint-Platform"] in ("windows", "linux", "macos")
 
 
 def test_list_jobs_and_ack_and_auth_errors():
@@ -111,11 +111,11 @@ def test_download_checks(tmp_path):
 
 
 def test_pair_maps_422_to_final_error():
-    with mock.patch("tbrprint.api.requests.post", return_value=Resp(422, {"error": "unknown_code", "message": "expired"})):
+    with mock.patch("tbhprint.api.requests.post", return_value=Resp(422, {"error": "unknown_code", "message": "expired"})):
         with pytest.raises(apimod.ApiError) as exc:
             apimod.pair("https://shop.techbenchhub.co.uk", "abcd", "Desk")
     assert not exc.value.retryable and "expired" in str(exc.value)
-    with mock.patch("tbrprint.api.requests.post", return_value=Resp(201, {"agent_uuid": "u", "token": "t"})) as post:
+    with mock.patch("tbhprint.api.requests.post", return_value=Resp(201, {"agent_uuid": "u", "token": "t"})) as post:
         assert apimod.pair("https://shop.techbenchhub.co.uk/", "abcd2345", "Desk")["token"] == "t"
     assert post.call_args.args[0] == "https://shop.techbenchhub.co.uk/api/print/v1/pair"
     assert post.call_args.kwargs["json"]["code"] == "ABCD2345"

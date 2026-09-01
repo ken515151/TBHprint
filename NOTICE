@@ -1,4 +1,4 @@
-TBRprint
+TBHprint
 Copyright (c) 2026 Ken Peddie / TechBenchHub
 
 The daemon architecture (job pipeline with per-job timeouts, SQLite job

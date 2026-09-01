@@ -22,7 +22,7 @@ from .backends import PrintError
 from .config import Config
 from .store import Store
 
-log = logging.getLogger("tbrprint.pipeline")
+log = logging.getLogger("tbhprint.pipeline")
 
 DOCUMENT_TYPES = ("invoice", "receipt", "estimate", "credit_note", "purchase_order",
                   "booking_sheet", "collection_form", "ticket_label")
@@ -191,7 +191,7 @@ class Pipeline:
         _write_test_pdf(path)
         job_uuid = f"test-{uuidlib.uuid4().hex[:8]}"
         self.store.add_job(job_uuid, "test_page", title=f"Test page -> {printer.name}", payload={"_local_only": True})
-        self._print_file(job_uuid, path, printer.name, 1, list(printer.options), title="TBRprint test page", local_only=True)
+        self._print_file(job_uuid, path, printer.name, 1, list(printer.options), title="TBHprint test page", local_only=True)
         return True
 
     # -- worker -----------------------------------------------------------
@@ -380,7 +380,7 @@ _MINIMAL_PDF = b"""%PDF-1.4
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
 4 0 obj<</Length 78>>stream
-BT /F1 18 Tf 72 770 Td (TBRprint test page) Tj 0 -24 Td (Printing works.) Tj ET
+BT /F1 18 Tf 72 770 Td (TBHprint test page) Tj 0 -24 Td (Printing works.) Tj ET
 endstream
 endobj
 5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj

@@ -24,7 +24,7 @@ import websockets
 
 from . import __version__
 
-log = logging.getLogger("tbrprint.reverb")
+log = logging.getLogger("tbhprint.reverb")
 
 PROTOCOL_VERSION = 7
 PRINT_JOB_EVENT = "print.job"
@@ -60,7 +60,7 @@ class ReverbTransport:
 
     @property
     def url(self) -> str:
-        return f"{self.ws_url}?protocol={PROTOCOL_VERSION}&client=tbrprint&version={__version__}"
+        return f"{self.ws_url}?protocol={PROTOCOL_VERSION}&client=tbhprint&version={__version__}"
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._thread_main, name="reverb", daemon=True)

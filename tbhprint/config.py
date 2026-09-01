@@ -1,16 +1,16 @@
-"""Configuration owner for TBRprint.
+"""Configuration owner for TBHprint.
 
 One JSON file; the daemon is its single writer (the CLI edits it through
 the control socket while the daemon runs, directly when it doesn't).
 
 Locations (override with --config):
-  Windows: %ProgramData%\\TBRprint\\config.json
-  Linux:   /etc/tbrprint/config.json
-  macOS:   /Library/Application Support/TBRprint/config.json
+  Windows: %ProgramData%\\TBHprint\\config.json
+  Linux:   /etc/tbhprint/config.json
+  macOS:   /Library/Application Support/TBHprint/config.json
 
 The bearer token lives in this file (0600 / ProgramData ACLs) unless the
 optional `keyring` package is installed, in which case it is stored in the
-OS credential store under service "tbrprint" and the file holds "keyring".
+OS credential store under service "tbhprint" and the file holds "keyring".
 """
 
 from __future__ import annotations
@@ -27,26 +27,26 @@ TRANSPORT_MODES = ("auto", "realtime", "poll")
 DUPLEX_VALUES = ("off", "long-edge", "short-edge")
 BACKENDS = ("auto", "cups", "windows")
 
-KEYRING_SERVICE = "tbrprint"
+KEYRING_SERVICE = "tbhprint"
 KEYRING_MARKER = "keyring"
 
 
 def default_config_path() -> str:
     if sys.platform.startswith("win"):
         base = os.environ.get("ProgramData", r"C:\ProgramData")
-        return os.path.join(base, "TBRprint", "config.json")
+        return os.path.join(base, "TBHprint", "config.json")
     if sys.platform == "darwin":
-        return "/Library/Application Support/TBRprint/config.json"
-    return "/etc/tbrprint/config.json"
+        return "/Library/Application Support/TBHprint/config.json"
+    return "/etc/tbhprint/config.json"
 
 
 def default_state_dir() -> str:
     if sys.platform.startswith("win"):
         base = os.environ.get("ProgramData", r"C:\ProgramData")
-        return os.path.join(base, "TBRprint")
+        return os.path.join(base, "TBHprint")
     if sys.platform == "darwin":
-        return "/Library/Application Support/TBRprint"
-    return "/var/lib/tbrprint"
+        return "/Library/Application Support/TBHprint"
+    return "/var/lib/tbhprint"
 
 
 class ConfigError(ValueError):

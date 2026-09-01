@@ -23,7 +23,7 @@ import requests
 from . import __version__
 from .config import Server
 
-log = logging.getLogger("tbrprint.api")
+log = logging.getLogger("tbhprint.api")
 
 _TIMEOUT = (10, 30)
 MAX_PDF_BYTES = 25 * 1024 * 1024
@@ -58,10 +58,10 @@ def platform_name() -> str:
 
 def _headers(token: str | None = None) -> dict[str, str]:
     headers = {
-        "User-Agent": f"TBRprint/{__version__} ({platform.system()} {platform.release()})",
+        "User-Agent": f"TBHprint/{__version__} ({platform.system()} {platform.release()})",
         "Accept": "application/json",
-        "X-TBRprint-Version": __version__,
-        "X-TBRprint-Platform": platform_name(),
+        "X-TBHprint-Version": __version__,
+        "X-TBHprint-Platform": platform_name(),
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"

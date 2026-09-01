@@ -3,9 +3,9 @@ from unittest import mock
 
 import pytest
 
-from tbrprint import api as apimod
-from tbrprint import transport_reverb as tr
-from tbrprint.transport_poll import PollerTransport
+from tbhprint import api as apimod
+from tbhprint import transport_reverb as tr
+from tbhprint.transport_poll import PollerTransport
 
 
 def test_event_data_tolerates_string_and_object():
@@ -20,7 +20,7 @@ def test_dispatch_routes_print_job_and_pings():
     jobs = []
     t = tr.ReverbTransport("wss://ws.example/app/k", "private-c", lambda s, c: "k:sig", on_job=jobs.append)
     ws = mock.Mock()
-    with mock.patch("tbrprint.transport_reverb.asyncio.ensure_future") as ensure:
+    with mock.patch("tbhprint.transport_reverb.asyncio.ensure_future") as ensure:
         t._dispatch({"event": "pusher:ping", "data": {}}, ws)
         assert ensure.called
     t._dispatch({"event": "print.job", "data": json.dumps({"uuid": "j1", "document_type": "ticket_label"})}, ws)
@@ -31,7 +31,7 @@ def test_dispatch_routes_print_job_and_pings():
 
 def test_url_carries_protocol_and_client():
     t = tr.ReverbTransport("wss://ws.example:443/app/key", "private-c", lambda s, c: "", on_job=lambda p: None)
-    assert t.url.startswith("wss://ws.example:443/app/key?protocol=7&client=tbrprint&version=")
+    assert t.url.startswith("wss://ws.example:443/app/key?protocol=7&client=tbhprint&version=")
 
 
 def test_handshake_sends_auth_string():

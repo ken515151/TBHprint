@@ -1,14 +1,14 @@
-# TBRprint — the TechBenchHub print agent
+# TBHprint — the TechBenchHub print agent
 
 A small background program for a shop PC. TechBenchHub queues a print job
-(ticket label at intake, booking sheet, invoice, collection form…); TBRprint
+(ticket label at intake, booking sheet, invoice, collection form…); TBHprint
 receives it over an authenticated websocket, fetches the PDF, prints it to the
 printer you routed that document type to, and reports back — so Settings →
 Printing in TechBenchHub shows *printed* or *failed (reason)* for every job.
 
 Windows, Linux (CUPS), macOS (CUPS). Standard OS printer drivers only — no
 raw ESC/POS, no cash drawers, no printer-specific code. If it prints from a
-browser it prints from TBRprint.
+browser it prints from TBHprint.
 
 ## Install
 
@@ -26,23 +26,23 @@ In TechBenchHub: **Settings → Printing → Add agent** shows an 8-character
 code (valid 10 minutes, single use). On the shop PC:
 
 ```
-tbrprint pair https://yourshop.techbenchhub.co.uk ABCD2345 --name "Front desk"
+tbhprint pair https://yourshop.techbenchhub.co.uk ABCD2345 --name "Front desk"
 ```
 
 That stores the server URL, this agent's own bearer token and the websocket
-details in the config file (`%ProgramData%\TBRprint\config.json` on Windows,
-`/etc/tbrprint/config.json` on Linux). Revoking the agent in Settings kills
+details in the config file (`%ProgramData%\TBHprint\config.json` on Windows,
+`/etc/tbhprint/config.json` on Linux). Revoking the agent in Settings kills
 that token immediately.
 
 ## Route documents to printers
 
 ```
-tbrprint printers                                  # what the OS knows
-tbrprint route ticket_label   --printer "Brother QL-800" --copies 2
-tbrprint route booking_sheet  --printer "HP LaserJet"
-tbrprint route invoice        --printer "HP LaserJet"
-tbrprint route collection_form --printer "HP LaserJet"
-tbrprint test-print "HP LaserJet"
+tbhprint printers                                  # what the OS knows
+tbhprint route ticket_label   --printer "Brother QL-800" --copies 2
+tbhprint route booking_sheet  --printer "HP LaserJet"
+tbhprint route invoice        --printer "HP LaserJet"
+tbhprint route collection_form --printer "HP LaserJet"
+tbhprint test-print "HP LaserJet"
 ```
 
 Document types: `ticket_label`, `booking_sheet`, `collection_form`,
@@ -53,13 +53,13 @@ visible in TechBenchHub rather than silently dropped.
 ## Run
 
 ```
-tbrprint run                 # foreground, logs to stdout
-tbrprint run --dry-run       # everything except the actual print
-tbrprint service install     # Windows: scheduled task at logon; Linux: prints the systemd steps
-tbrprint status
-tbrprint history --limit 20
-tbrprint reprint <uuid>
-tbrprint pause / resume
+tbhprint run                 # foreground, logs to stdout
+tbhprint run --dry-run       # everything except the actual print
+tbhprint service install     # Windows: scheduled task at logon; Linux: prints the systemd steps
+tbhprint status
+tbhprint history --limit 20
+tbhprint reprint <uuid>
+tbhprint pause / resume
 ```
 
 ## How delivery works (docs/PROTOCOL.md)

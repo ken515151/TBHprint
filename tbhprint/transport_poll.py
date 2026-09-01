@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from . import api as apimod
 
-log = logging.getLogger("tbrprint.poll")
+log = logging.getLogger("tbhprint.poll")
 
 CURSOR_KEY = "poll_cursor"
 

@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from tbrprint import config as cfgmod
+from tbhprint import config as cfgmod
 
 
 def _paired():

@@ -1,12 +1,12 @@
-"""`tbrprint` command line.
+"""`tbhprint` command line.
 
-  tbrprint run [--dry-run] [--verbose]          the agent itself (foreground)
-  tbrprint pair <server url> <code> --name ...  enrol this PC with a shop
-  tbrprint printers                              printers the OS knows
-  tbrprint route <type> --printer <name> [--copies N] [--duplex ...] [--disable]
-  tbrprint routes                                show routing
-  tbrprint status | history | reprint <uuid> | pause | resume | test-print <printer> | catch-up
-  tbrprint service install|remove                Windows scheduled task at logon / systemd hints
+  tbhprint run [--dry-run] [--verbose]          the agent itself (foreground)
+  tbhprint pair <server url> <code> --name ...  enrol this PC with a shop
+  tbhprint printers                              printers the OS knows
+  tbhprint route <type> --printer <name> [--copies N] [--duplex ...] [--disable]
+  tbhprint routes                                show routing
+  tbhprint status | history | reprint <uuid> | pause | resume | test-print <printer> | catch-up
+  tbhprint service install|remove                Windows scheduled task at logon / systemd hints
 
 Commands other than run/pair/service talk to the running agent over the
 control channel; route/printers fall back to editing the config directly
@@ -31,13 +31,13 @@ from . import __version__, api as apimod, config as cfgmod, control
 from .backends import PrintError, get_backend
 from .daemon import build
 
-log = logging.getLogger("tbrprint")
+log = logging.getLogger("tbhprint")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="tbrprint", description="TechBenchHub print agent")
+    parser = argparse.ArgumentParser(prog="tbhprint", description="TechBenchHub print agent")
     parser.add_argument("--config", default=None, help=f"config file (default {cfgmod.default_config_path()})")
-    parser.add_argument("--version", action="version", version=f"tbrprint {__version__}")
+    parser.add_argument("--version", action="version", version=f"tbhprint {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("run", help="run the agent in the foreground")
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("route", help="route a document type to a printer")
     p.add_argument("document_type")
-    p.add_argument("--printer", required=True, help="OS printer name (from `tbrprint printers`)")
+    p.add_argument("--printer", required=True, help="OS printer name (from `tbhprint printers`)")
     p.add_argument("--copies", type=int, default=None, help="override the job's copies")
     p.add_argument("--duplex", choices=cfgmod.DUPLEX_VALUES, default="off")
     p.add_argument("--rotate", action="store_true")
@@ -123,7 +123,7 @@ def cmd_run(args, config_path: str) -> int:
 
     signal.signal(signal.SIGTERM, _term)
     signal.signal(signal.SIGINT, _term)
-    log.info("tbrprint %s up (paired=%s dry_run=%s)", __version__, daemon.cfg.server.is_paired, args.dry_run)
+    log.info("tbhprint %s up (paired=%s dry_run=%s)", __version__, daemon.cfg.server.is_paired, args.dry_run)
     while not stop.is_set():
         time.sleep(0.5)
     server.stop()
@@ -159,7 +159,7 @@ def cmd_pair(args, config_path: str) -> int:
     print(f"Paired as \"{cfg.server.agent_name}\" with {server_url} (agent {cfg.server.agent_uuid}).")
     print(f"Config: {config_path}")
     _try_control(lambda c: c.call("reload"))
-    print("Next: `tbrprint printers`, then `tbrprint route ticket_label --printer \"<name>\"`, then `tbrprint run`.")
+    print("Next: `tbhprint printers`, then `tbhprint route ticket_label --printer \"<name>\"`, then `tbhprint run`.")
     return 0
 
 
@@ -198,7 +198,7 @@ def cmd_route(args, config_path: str) -> int:
 def cmd_routes(args, config_path: str) -> int:
     cfg = _load_or_empty(config_path)
     if not cfg.routing and not cfg.default_printer:
-        print("No routes yet. `tbrprint route ticket_label --printer \"<name>\"`")
+        print("No routes yet. `tbhprint route ticket_label --printer \"<name>\"`")
         return 0
     for doc_type, route in sorted(cfg.routing.items()):
         printer = cfg.printers.get(route.printer)
@@ -276,7 +276,7 @@ def cmd_test_print(args, config_path: str) -> int:
         path = os.path.join(cfgmod.default_state_dir(), "testpage.pdf")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         _write_test_pdf(path)
-        get_backend(cfg.backend).submit(args.printer, path, copies=1, title="TBRprint test page")
+        get_backend(cfg.backend).submit(args.printer, path, copies=1, title="TBHprint test page")
     print("test page submitted")
     return 0
 
@@ -291,11 +291,11 @@ def cmd_log(args, config_path: str) -> int:
 
 def cmd_service(args, config_path: str) -> int:
     if sys.platform.startswith("win"):
-        task = "TBRprint"
+        task = "TBHprint"
         if args.action == "install":
             pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
             exe = pythonw if os.path.exists(pythonw) else sys.executable
-            command = f'"{exe}" -m tbrprint --config "{config_path}" run'
+            command = f'"{exe}" -m tbhprint --config "{config_path}" run'
             proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/SC", "ONLOGON",
                                    "/RL", "LIMITED", "/TR", command], capture_output=True, text=True)
             if proc.returncode != 0:
@@ -309,9 +309,9 @@ def cmd_service(args, config_path: str) -> int:
             proc = subprocess.run(["schtasks", "/Delete", "/F", "/TN", task], capture_output=True, text=True)
             print("Removed." if proc.returncode == 0 else (proc.stderr.strip() or proc.stdout.strip()))
         return 0
-    print("Linux/macOS: install the systemd unit from packaging/tbrprint.service:")
-    print("  sudo useradd -r -G lp tbrprint; sudo mkdir -p /etc/tbrprint /var/lib/tbrprint")
-    print("  sudo cp packaging/tbrprint.service /etc/systemd/system/ && sudo systemctl enable --now tbrprint")
+    print("Linux/macOS: install the systemd unit from packaging/tbhprint.service:")
+    print("  sudo useradd -r -G lp tbhprint; sudo mkdir -p /etc/tbhprint /var/lib/tbhprint")
+    print("  sudo cp packaging/tbhprint.service /etc/systemd/system/ && sudo systemctl enable --now tbhprint")
     return 0
 
 
@@ -331,7 +331,7 @@ def _control(fn):
     try:
         return fn(client)
     except OSError as exc:
-        raise control.ControlError(f"the agent is not running ({exc}) - start it with `tbrprint run`")
+        raise control.ControlError(f"the agent is not running ({exc}) - start it with `tbhprint run`")
     finally:
         client.close()
 

@@ -1,26 +1,26 @@
 [Unit]
-Description=TBRprint - TechBenchHub print agent
+Description=TBHprint - TechBenchHub print agent
 After=network-online.target cups.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=tbrprint
-Group=tbrprint
+User=tbhprint
+Group=tbhprint
 SupplementaryGroups=lp
-ExecStart=/usr/bin/python3 -m tbrprint run
-WorkingDirectory=/var/lib/tbrprint
+ExecStart=/usr/bin/python3 -m tbhprint run
+WorkingDirectory=/var/lib/tbhprint
 Restart=on-failure
 RestartSec=5
 
-RuntimeDirectory=tbrprint
+RuntimeDirectory=tbhprint
 RuntimeDirectoryMode=0750
-StateDirectory=tbrprint
+StateDirectory=tbhprint
 StateDirectoryMode=0750
 
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/tbrprint /run/tbrprint /etc/tbrprint
+ReadWritePaths=/var/lib/tbhprint /run/tbhprint /etc/tbhprint
 PrivateTmp=yes
 ProtectHome=yes
 ProtectKernelTunables=yes

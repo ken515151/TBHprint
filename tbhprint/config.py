@@ -31,10 +31,17 @@ KEYRING_SERVICE = "tbhprint"
 KEYRING_MARKER = "keyring"
 
 
+def _windows_base() -> str:
+    """Per-user, never ProgramData: the installer is per-user (no admin,
+    silent auto-updates), printers are per-user, and %LOCALAPPDATA% is what
+    the uninstaller offers to clean up (DISTRIBUTION_DESIGN.md section 5)."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    return os.path.join(base, "TBHprint")
+
+
 def default_config_path() -> str:
     if sys.platform.startswith("win"):
-        base = os.environ.get("ProgramData", r"C:\ProgramData")
-        return os.path.join(base, "TBHprint", "config.json")
+        return os.path.join(_windows_base(), "config.json")
     if sys.platform == "darwin":
         return "/Library/Application Support/TBHprint/config.json"
     return "/etc/tbhprint/config.json"
@@ -42,8 +49,7 @@ def default_config_path() -> str:
 
 def default_state_dir() -> str:
     if sys.platform.startswith("win"):
-        base = os.environ.get("ProgramData", r"C:\ProgramData")
-        return os.path.join(base, "TBHprint")
+        return _windows_base()
     if sys.platform == "darwin":
         return "/Library/Application Support/TBHprint"
     return "/var/lib/tbhprint"

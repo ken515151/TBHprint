@@ -9,7 +9,8 @@ Each backend exposes the same small surface the pipeline calls:
   PrintError
 
 Standard OS drivers only (FEATURES.md §13): CUPS via `lp` on Linux/macOS,
-SumatraPDF / the shell print verb on Windows. No raw ESC/POS, no drawer kick.
+pypdfium2 + the Windows spooler (GDI) on Windows. No raw ESC/POS, no
+drawer kick.
 """
 
 from __future__ import annotations

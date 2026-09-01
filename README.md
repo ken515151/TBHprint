@@ -16,8 +16,8 @@ Python 3.11+.
 
 ```
 pip install .
-# Windows, optional but recommended for reliable silent printing:
-#   put SumatraPDF.exe on PATH or in C:\Program Files\SumatraPDF\
+# Windows printing uses pypdfium2 + pywin32 (installed automatically by
+# the dependency markers below) - no separate PDF viewer needed.
 ```
 
 ## Pair with your shop

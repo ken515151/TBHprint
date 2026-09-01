@@ -4,15 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tbhprint"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TBHprint - the TechBenchHub print agent: prints labels, booking sheets and invoices from TechBenchHub straight to a shop PC's printers."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Ken Peddie" }]
 dependencies = [
     "requests>=2.31",
     "websockets>=12",
+    "pypdfium2>=4.30; sys_platform == 'win32'",
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +24,9 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 tbhprint = "tbhprint.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "tbhprint.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["tbhprint*"]

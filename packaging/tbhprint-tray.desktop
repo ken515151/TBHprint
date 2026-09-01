@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TBHprint
+Comment=TechBenchHub print agent - tray applet
+Exec=tbhprint tray
+Icon=printer
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

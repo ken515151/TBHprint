@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow>=10"]
 keyring = ["keyring>=24"]
 dev = ["pytest>=8"]
 

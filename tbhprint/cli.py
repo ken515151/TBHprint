@@ -80,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("log")
     p.add_argument("-n", type=int, default=50)
 
+    p = sub.add_parser("tray", help="tray applet (Windows: runs the agent embedded unless one is already running)")
+    p.add_argument("--embedded", dest="embedded", action="store_true", default=None, help="run the agent inside the applet process")
+    p.add_argument("--no-embedded", dest="embedded", action="store_false", help="only connect to a running agent")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--verbose", "-v", action="store_true")
+    p.add_argument("--state-dir", default=None)
+
     p = sub.add_parser("service", help="install/remove the background service")
     p.add_argument("action", choices=("install", "remove"))
 
@@ -91,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         "routes": cmd_routes, "default-printer": cmd_default_printer, "status": cmd_status,
         "history": cmd_history, "reprint": cmd_reprint, "pause": cmd_pause, "resume": cmd_resume,
         "catch-up": cmd_catch_up, "test-print": cmd_test_print, "log": cmd_log, "service": cmd_service,
+        "tray": cmd_tray,
     }[args.cmd]
     try:
         return handler(args, config_path)
@@ -130,6 +138,18 @@ def cmd_run(args, config_path: str) -> int:
     daemon.stop()
     store.close()
     return 0
+
+
+# -- tray --------------------------------------------------------------------------
+
+def cmd_tray(args, config_path: str) -> int:
+    try:
+        from .applet.tray import main as tray_main
+    except ImportError as exc:
+        print(f"error: the tray applet needs pystray + Pillow (pip install 'tbhprint[tray]'): {exc}", file=sys.stderr)
+        return 1
+    return tray_main(config_path, embedded=args.embedded, state_dir=args.state_dir,
+                     dry_run=args.dry_run, verbose=args.verbose)
 
 
 # -- pair --------------------------------------------------------------------------
@@ -295,14 +315,16 @@ def cmd_service(args, config_path: str) -> int:
         if args.action == "install":
             pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
             exe = pythonw if os.path.exists(pythonw) else sys.executable
-            command = f'"{exe}" -m tbhprint --config "{config_path}" run'
+            # The tray applet with the agent embedded: one logon task gives
+            # the desk both the icon and the printing.
+            command = f'"{exe}" -m tbhprint --config "{config_path}" tray --embedded'
             proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task, "/SC", "ONLOGON",
                                    "/RL", "LIMITED", "/TR", command], capture_output=True, text=True)
             if proc.returncode != 0:
                 print(proc.stderr.strip() or proc.stdout.strip(), file=sys.stderr)
                 return 1
             subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True, text=True)
-            print(f"Installed scheduled task '{task}' (runs at logon as this user, started now).")
+            print(f"Installed scheduled task '{task}' (tray applet + agent at logon as this user, started now).")
             print("Printers on Windows are per-user, so the agent runs in your session - keep this PC signed in.")
         else:
             subprocess.run(["schtasks", "/End", "/TN", task], capture_output=True, text=True)
@@ -312,6 +334,7 @@ def cmd_service(args, config_path: str) -> int:
     print("Linux/macOS: install the systemd unit from packaging/tbhprint.service:")
     print("  sudo useradd -r -G lp tbhprint; sudo mkdir -p /etc/tbhprint /var/lib/tbhprint")
     print("  sudo cp packaging/tbhprint.service /etc/systemd/system/ && sudo systemctl enable --now tbhprint")
+    print("Tray applet at login: cp packaging/tbhprint-tray.desktop ~/.config/autostart/")
     return 0
 
 

@@ -50,12 +50,28 @@ Document types: `ticket_label`, `booking_sheet`, `collection_form`,
 with no route fails the job with "no printer routed" so the reason is
 visible in TechBenchHub rather than silently dropped.
 
-## Run
+## Tray applet (Windows and Linux)
+
+```
+pip install .[tray]          # pystray + Pillow; tkinter ships with Python (Linux: apt install python3-tk)
+tbhprint tray                # Windows: runs the agent embedded unless one is already running
+                             # Linux: connects to the systemd agent
+```
+
+The icon's colour is the agent's health (green connected, amber polling
+or paused, red error, grey not paired). The menu has pause/resume, "check
+for jobs now", a test-print per printer, and the four windows: Status,
+Print history (reprint / cancel), Settings (pair with the shop, route each
+document type to a printer, copies, test print) and Log. `tbhprint service
+install` on Windows makes the tray + agent start at logon; on Linux drop
+`packaging/tbhprint-tray.desktop` into `~/.config/autostart/`.
+
+## Run (headless)
 
 ```
 tbhprint run                 # foreground, logs to stdout
 tbhprint run --dry-run       # everything except the actual print
-tbhprint service install     # Windows: scheduled task at logon; Linux: prints the systemd steps
+tbhprint service install     # Windows: tray+agent scheduled task at logon; Linux: prints the systemd steps
 tbhprint status
 tbhprint history --limit 20
 tbhprint reprint <uuid>

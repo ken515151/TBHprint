@@ -48,8 +48,10 @@ case "$1" in
         python3 -m venv --system-site-packages /opt/tbhprint/venv
     fi
     # Wheels only - the tbhprint wheel was built at package time (build.sh),
-    # so no setuptools/build step ever runs on this machine.
-    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade "tbhprint==__VERSION__"
+    # so no setuptools/build step ever runs on this machine. [tray,keyring]
+    # pulls pystray + keyring from the vendored wheels; Pillow/tk/gi come from
+    # the distro through --system-site-packages.
+    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade "tbhprint[tray,keyring]==__VERSION__"
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload

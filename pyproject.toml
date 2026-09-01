@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tray = ["pystray>=0.19", "Pillow>=10"]
+tray = ["pystray>=0.19", "Pillow>=9"]   # >=9: Ubuntu 22.04 ships python3-pil 9.0 (the .deb uses the distro Pillow)
 keyring = ["keyring>=24"]
 dev = ["pytest>=8"]
 

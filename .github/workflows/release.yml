@@ -1,0 +1,90 @@
+# docs/DISTRIBUTION_DESIGN.md section 7. Builds both installers and
+# publishes them to a GitHub Release under exactly the three names the
+# TechBenchHub server looks them up by (see docs/PRINT_AGENT_DESIGN.md
+# "Phase 2") - do not rename these without updating the server too:
+#   TBHprint-Setup-<version>.exe
+#   tbhprint_<version>_all.deb
+#   SHA256SUMS
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  check-version:
+    name: tag matches pyproject.toml
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^version *= *"([^"]+)"/\1/p' pyproject.toml | head -n1 | tr -d '\r')"
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "pyproject.toml version: $VERSION"
+          echo "tag (without leading v): $TAG"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "::error::tag v$TAG does not match pyproject.toml version $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    name: build the Windows installer
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Pillow (icon generation)
+        run: py -3 -m pip install Pillow
+      - name: build.ps1
+        shell: pwsh
+        run: |
+          # ISCC is preinstalled on windows-latest at this exact path.
+          build\windows\build.ps1 -Iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/TBHprint-Setup-${{ needs.check-version.outputs.version }}.exe
+
+  build-linux:
+    name: build the .deb
+    needs: check-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: build.sh (self-dockerizes into ubuntu:22.04)
+        run: bash build/linux/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/tbhprint_${{ needs.check-version.outputs.version }}_all.deb
+
+  publish:
+    name: create the GitHub Release
+    needs: [check-version, build-windows, build-linux]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb
+          path: dist
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum TBHprint-Setup-${{ needs.check-version.outputs.version }}.exe tbhprint_${{ needs.check-version.outputs.version }}_all.deb > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/TBHprint-Setup-${{ needs.check-version.outputs.version }}.exe
+            dist/tbhprint_${{ needs.check-version.outputs.version }}_all.deb
+            dist/SHA256SUMS

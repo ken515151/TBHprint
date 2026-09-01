@@ -13,7 +13,7 @@ on:
 
 jobs:
   check-version:
-    name: tag matches pyproject.toml
+    name: tag matches tbhprint.__version__
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -22,12 +22,12 @@ jobs:
       - id: version
         run: |
           set -euo pipefail
-          VERSION="$(sed -nE 's/^version *= *"([^"]+)"/\1/p' pyproject.toml | head -n1 | tr -d '\r')"
+          VERSION="$(sed -nE 's/^__version__ *= *"([^"]+)"/\1/p' tbhprint/__init__.py | head -n1 | tr -d '\r')"
           TAG="${GITHUB_REF_NAME#v}"
-          echo "pyproject.toml version: $VERSION"
+          echo "tbhprint.__version__: $VERSION"
           echo "tag (without leading v): $TAG"
           if [ "$VERSION" != "$TAG" ]; then
-            echo "::error::tag v$TAG does not match pyproject.toml version $VERSION"
+            echo "::error::tag v$TAG does not match tbhprint.__version__ $VERSION"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

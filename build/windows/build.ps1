@@ -103,12 +103,13 @@ $CacheDir = Join-Path $env:TEMP "tbhprint-build-cache"
 
 New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
 
-# -- version, from pyproject.toml (never edited here - read only) --------------
+# -- version: tbhprint/__init__.py's __version__ (pyproject.toml declares
+#    version = dynamic and reads the same attribute, so this is THE source) --
 
-$pyproject = Get-Content (Join-Path $RepoRoot "pyproject.toml") -Raw
-$versionMatch = [regex]::Match($pyproject, '(?m)^version\s*=\s*"([^"]+)"')
+$initPy = Get-Content (Join-Path $RepoRoot "tbhprint\__init__.py") -Raw
+$versionMatch = [regex]::Match($initPy, '(?m)^__version__\s*=\s*"([^"]+)"')
 if (-not $versionMatch.Success) {
-    Fail "could not find a version = `"...`" line in pyproject.toml"
+    Fail "could not find __version__ = `"...`" in tbhprint\__init__.py"
 }
 $Version = $versionMatch.Groups[1].Value
 Write-Host "TBHprint version: $Version"

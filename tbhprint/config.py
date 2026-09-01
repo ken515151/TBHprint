@@ -267,8 +267,13 @@ def save(cfg: Config, path: str | None = None) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
+    # 0660, not 0600: on a .deb install the file lives in /etc/tbhprint
+    # (root:tbhprint, setgid) and the desktop user is in group tbhprint so
+    # the CLI/tray can still read the config when the daemon is down. On
+    # Windows the per-user %LOCALAPPDATA% ACL is the protection; chmod is
+    # mostly a no-op there.
     try:
-        os.chmod(tmp, 0o600)
+        os.chmod(tmp, 0o660)
     except OSError:
         pass
     os.replace(tmp, path)

@@ -26,7 +26,15 @@ case "$1" in
         fi
     fi
 
+    # The daemon (user tbhprint) is the config's writer - pairing from the
+    # Settings window saves it - and it writes atomically (temp file +
+    # rename), which needs write access to the DIRECTORY, not just the
+    # file. Group tbhprint + setgid so anything created inside stays in
+    # that group; the desktop user is in it too (above) for read access
+    # when the daemon is down.
     mkdir -p /etc/tbhprint
+    chown root:tbhprint /etc/tbhprint
+    chmod 2770 /etc/tbhprint
     if [ -f /etc/tbhprint/config.json ]; then
         chown root:tbhprint /etc/tbhprint/config.json
         chmod 0660 /etc/tbhprint/config.json

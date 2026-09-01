@@ -58,7 +58,9 @@ python3 --version
 # stripped explicitly. A version with an embedded \r produces a package
 # filename Windows tools can list but not open - the exact failure mode
 # that caught this.
-VERSION="$(sed -nE 's/^version *= *"([^"]+)"/\1/p' "$REPO_ROOT/pyproject.toml" | head -n1 | tr -dc '0-9A-Za-z.+_-')"
+# pyproject.toml declares version = dynamic (attr tbhprint.__version__), so
+# tbhprint/__init__.py is the single source of truth.
+VERSION="$(sed -nE 's/^__version__ *= *"([^"]+)"/\1/p' "$REPO_ROOT/tbhprint/__init__.py" | head -n1 | tr -dc '0-9A-Za-z.+_-')"
 if [ -z "$VERSION" ]; then
     echo "could not find version = \"...\" in pyproject.toml" >&2
     exit 1

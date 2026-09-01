@@ -97,7 +97,8 @@ class Server:
 @dataclass
 class Transport:
     mode: str = "auto"
-    poll_interval_s: int = 60
+    poll_interval_s: int = 60      # sweep cadence while the websocket is DOWN
+    heartbeat_interval_s: int = 120  # sweep cadence while the websocket is UP - see transport_poll.py
 
 
 @dataclass
@@ -175,6 +176,8 @@ class Config:
             raise ConfigError(f"transport.mode must be one of {TRANSPORT_MODES}")
         if self.transport.poll_interval_s < 10:
             raise ConfigError("transport.poll_interval_s must be >= 10")
+        if self.transport.heartbeat_interval_s < 30:
+            raise ConfigError("transport.heartbeat_interval_s must be >= 30")
         if self.backend not in BACKENDS:
             raise ConfigError(f"backend must be one of {BACKENDS}")
         for key, printer in self.printers.items():

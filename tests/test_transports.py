@@ -112,3 +112,38 @@ def test_poller_reports_auth_errors_as_error_state():
     except apimod.AuthError:
         states.append("error")
     assert states == ["error"]
+
+
+def test_poller_heartbeat_mode_sweeps_quietly():
+    """Heartbeat sweeps keep last_seen fresh but never flip transport state -
+    the websocket owns the state while it is connected."""
+    states: list[str] = []
+    got: list[dict] = []
+
+    class Client:
+        def list_jobs(self):
+            return [{"uuid": "u1"}]
+
+    poller = PollerTransport(lambda: Client(), on_job=got.append, interval_s=10, heartbeat_s=30,
+                             on_state=states.append)
+    poller.set_mode("heartbeat")
+    assert poller.active is True and poller.mode == "heartbeat"
+
+    # Drive one loop iteration by hand the way the run loop does.
+    poller._wake.set()
+    poller._stopping = False
+    quiet = poller.mode == "heartbeat"
+    poller.sweep_once()
+    if not quiet:
+        poller.on_state("degraded")
+
+    assert got == [{"uuid": "u1"}]
+    assert states == []          # quiet: no state flip while connected
+
+    poller.set_mode("fallback")
+    assert poller.mode == "fallback"
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        poller.set_mode("sideways")

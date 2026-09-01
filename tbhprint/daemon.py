@@ -65,6 +65,7 @@ class Daemon:
             client_provider=lambda: self.client,
             on_job=self._on_wire_payload,
             interval_s=self.cfg.transport.poll_interval_s,
+            heartbeat_s=self.cfg.transport.heartbeat_interval_s,
             on_state=self._on_transport_state,
         )
         self.poller.start()
@@ -80,12 +81,12 @@ class Daemon:
             )
             self.reverb.start()
             if mode == "auto":
-                self.poller.set_active(True)
+                self.poller.set_mode("fallback")
         else:
             if mode != "poll":
                 log.warning("server sent no websocket details - polling only")
             self.transport_name = "poller"
-            self.poller.set_active(True)
+            self.poller.set_mode("fallback")
         # Always one catch-up at start so nothing queued while we were down is missed.
         threading.Thread(target=self._safe_catch_up, name="startup-catch-up", daemon=True).start()
         self.start_update_checker()
@@ -100,7 +101,11 @@ class Daemon:
         self.state = "connected"
         self._safe_catch_up()
         if self.cfg.transport.mode == "auto" and self.poller:
-            self.poller.set_active(False)
+            # Slow heartbeat, never silence: the server's online lamp (and
+            # the ticket-page print rows) follow last_seen, which only
+            # http calls refresh - found live 2026-09-01 when connected
+            # production agents "went offline" while working perfectly.
+            self.poller.set_mode("heartbeat")
 
     def _safe_catch_up(self) -> None:
         try:
@@ -118,7 +123,7 @@ class Daemon:
         elif state == "disconnected":
             self.state = "degraded" if self.cfg.transport.mode == "auto" else "disconnected"
             if self.cfg.transport.mode == "auto" and self.poller:
-                self.poller.set_active(True)
+                self.poller.set_mode("fallback")
         elif state in ("degraded", "error"):
             if self.state != "connected":
                 self.state = state
@@ -187,6 +192,7 @@ class Daemon:
         self.pipeline.set_config(new_cfg)
         if self.poller:
             self.poller.interval_s = new_cfg.transport.poll_interval_s
+            self.poller.heartbeat_s = new_cfg.transport.heartbeat_interval_s
         if vars(new_cfg.server) != old_server:
             self.restart_transports()
         log.info("config updated and saved")

@@ -5,6 +5,12 @@ returns every job still open for this agent. So the poller is exact, not
 best-effort - one sweep on every websocket reconnect covers any outage,
 and timed sweeps keep printing working when the websocket is down.
 Dedupe by server uuid makes overlapping sweeps harmless.
+
+The poller never fully stops: while the websocket is CONNECTED it keeps
+sweeping at the slower heartbeat cadence, both to keep the server's
+last_seen fresh (a silent websocket agent otherwise shows "offline" in
+the shop after five minutes) and to recover any broadcast the socket
+dropped without a reconnect.
 """
 
 from __future__ import annotations
@@ -29,12 +35,23 @@ class PollerTransport:
     def __init__(self, client_provider: Callable[[], apimod.Client | None],
                  on_job: Callable[[dict[str, Any]], None],
                  interval_s: int = 60,
+                 heartbeat_s: int = 120,
                  on_state: Callable[[str], None] = lambda s: None):
         self.client_provider = client_provider
         self.on_job = on_job
         self.interval_s = interval_s
+        self.heartbeat_s = heartbeat_s
         self.on_state = on_state
         self.active = False
+        # 'fallback': websocket down - sweep every interval_s and report
+        # transport state. 'heartbeat': websocket UP - keep sweeping, slower
+        # (heartbeat_s), and stay silent about state (the websocket owns it).
+        # The heartbeat exists for two reasons found live on 2026-09-01:
+        # a connected agent otherwise makes NO http calls, so the server's
+        # last_seen ages out and the shop sees it "offline" (print rows
+        # hide); and a broadcast the websocket dropped would wait until the
+        # next reconnect - the sweep picks it up within heartbeat_s.
+        self.mode = "fallback"
         self._wake = threading.Event()
         self._stopping = False
         self._thread: threading.Thread | None = None
@@ -52,10 +69,22 @@ class PollerTransport:
 
     def set_active(self, active: bool) -> None:
         if active and not self.active:
-            log.info("poller activated (realtime unavailable)")
+            log.info("poller activated")
         self.active = active
         if active:
             self._wake.set()
+
+    def set_mode(self, mode: str) -> None:
+        """'fallback' (websocket down) or 'heartbeat' (websocket up). Both
+        keep the poller ACTIVE - the agent never goes silent on the server."""
+        if mode not in ("fallback", "heartbeat"):
+            raise ValueError(f"unknown poller mode {mode!r}")
+        if mode != self.mode:
+            log.info("poller mode: %s (every %ds)",
+                     mode, self.heartbeat_s if mode == "heartbeat" else self.interval_s)
+        self.mode = mode
+        self.active = True
+        self._wake.set()
 
     def sweep_once(self) -> int:
         """One GET /jobs; hands every open job to on_job. Returns the count."""
@@ -72,16 +101,21 @@ class PollerTransport:
 
     def _run(self) -> None:
         while not self._stopping:
-            self._wake.wait(timeout=self.interval_s)
+            timeout = self.heartbeat_s if self.mode == "heartbeat" else self.interval_s
+            self._wake.wait(timeout=timeout)
             self._wake.clear()
             if self._stopping or not self.active:
                 continue
+            quiet = self.mode == "heartbeat"
             try:
                 self.sweep_once()
-                self.on_state("degraded")
+                if not quiet:
+                    self.on_state("degraded")
             except apimod.AuthError as exc:
                 log.error("%s", exc)
-                self.on_state("error")
+                if not quiet:
+                    self.on_state("error")
             except Exception as exc:
                 log.warning("poll sweep failed: %s", exc)
-                self.on_state("error")
+                if not quiet:
+                    self.on_state("error")

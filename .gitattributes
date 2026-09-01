@@ -1,0 +1,14 @@
+# Packaging maintainer/build scripts must stay LF - dpkg, systemd and
+# /bin/sh do not tolerate a CRLF shebang line, and this repo is often
+# checked out on Windows (core.autocrlf=true) where that would otherwise
+# get silently rewritten on checkout.
+*.sh text eol=lf
+build/linux/debian/control text eol=lf
+build/linux/debian/postinst text eol=lf
+build/linux/debian/prerm text eol=lf
+build/linux/debian/postrm text eol=lf
+build/linux/debian/conffiles text eol=lf
+packaging/*.service text eol=lf
+packaging/*.path text eol=lf
+packaging/*.timer text eol=lf
+packaging/*.desktop text eol=lf

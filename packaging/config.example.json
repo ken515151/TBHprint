@@ -1,0 +1,25 @@
+{
+  "server": {
+    "url": "https://yourshop.techbenchhub.co.uk",
+    "token": "",
+    "agent_uuid": "",
+    "agent_name": "Front desk",
+    "tenant": "",
+    "channel": "",
+    "reverb": { "key": "", "host": "", "port": 443, "scheme": "https" }
+  },
+  "transport": { "mode": "auto", "poll_interval_s": 60 },
+  "backend": "auto",
+  "printers": {
+    "brother_ql_800": { "name": "Brother QL-800", "options": [] },
+    "hp_laserjet": { "name": "HP LaserJet", "options": [] }
+  },
+  "routing": {
+    "ticket_label": { "printer": "brother_ql_800", "enabled": true, "copies": 2, "duplex": "off", "rotate": false },
+    "booking_sheet": { "printer": "hp_laserjet", "enabled": true, "copies": null, "duplex": "off", "rotate": false },
+    "invoice": { "printer": "hp_laserjet", "enabled": true, "copies": null, "duplex": "off", "rotate": false }
+  },
+  "default_printer": null,
+  "timeouts": { "download_s": 120, "print_submit_s": 60, "stuck_flag_s": 90 },
+  "retention": { "spool_days": 7 }
+}

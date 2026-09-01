@@ -1,0 +1,14 @@
+TBRprint
+Copyright (c) 2026 Ken Peddie / TechBenchHub
+
+The daemon architecture (job pipeline with per-job timeouts, SQLite job
+history, control socket, CUPS submission via `lp`, Pusher-protocol
+websocket transport with a polling fallback) is carried over from
+SyncroPrint for Linux (https://github.com/ken515151/syncroprint), MIT
+licensed, by the same author. The wire protocol is TechBenchHub's own
+(docs/PROTOCOL.md) and shares nothing with the AutoPrintr protocol
+SyncroPrint speaks.
+
+SyncroPrint for Linux
+Copyright (c) 2026 SyncroPrint for Linux contributors
+Licensed under the MIT License (reproduced in LICENSE).

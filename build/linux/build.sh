@@ -105,13 +105,20 @@ for whl in "$WHEELS_OUT"/*.whl; do
 done
 echo "Vendored $(ls "$WHEELS_OUT"/*.whl | wc -l) wheels."
 
-# -- 4. app source (no deps list here - pyproject.toml is out of scope) ---------
-
-APP_OUT="$PKGROOT/opt/tbhprint/app"
-mkdir -p "$APP_OUT"
-cp "$REPO_ROOT/pyproject.toml" "$REPO_ROOT/README.md" "$REPO_ROOT/LICENSE" "$REPO_ROOT/NOTICE" "$APP_OUT/"
-cp -r "$REPO_ROOT/tbhprint" "$APP_OUT/tbhprint"
-find "$APP_OUT" -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+# -- 4. the tbhprint wheel itself, built HERE, never on the shop machine -------
+# First cut had postinst pip-build /opt/tbhprint/app on the target; on Ubuntu
+# 22.04 pip's isolated build env under a --system-site-packages venv picked
+# the distro's setuptools 59 and produced "UNKNOWN-0.0.0" (no tbhprint module,
+# service crash-looping). A pre-built pure wheel removes setuptools from the
+# install path entirely: postinst only ever unpacks wheels.
+if [ -n "${TBHPRINT_WHEELS_DIR:-}" ] && [ -d "${TBHPRINT_WHEELS_DIR}" ]; then
+    python3 -m pip install -q --no-index --find-links "$TBHPRINT_WHEELS_DIR" "setuptools>=68" wheel
+else
+    python3 -m pip install -q "setuptools>=68" wheel
+fi
+python3 -m pip wheel -q --no-deps --no-build-isolation -w "$WHEELS_OUT" "$REPO_ROOT"
+ls "$WHEELS_OUT"/tbhprint-"$VERSION"-py3-none-any.whl >/dev/null || { echo "tbhprint wheel for $VERSION was not built" >&2; exit 1; }
+echo "Built tbhprint-$VERSION-py3-none-any.whl."
 
 # -- 5. icons --------------------------------------------------------------------
 
@@ -152,7 +159,8 @@ install -m 0640 "$REPO_ROOT/packaging/config.example.json" "$PKGROOT/etc/tbhprin
 
 mkdir -p "$PKGROOT/DEBIAN"
 sed "s/__VERSION__/$VERSION/" "$HERE/debian/control" > "$PKGROOT/DEBIAN/control"
-install -m 0755 "$HERE/debian/postinst" "$PKGROOT/DEBIAN/postinst"
+sed "s/__VERSION__/$VERSION/" "$HERE/debian/postinst" > "$PKGROOT/DEBIAN/postinst"   # pins the wheel version
+chmod 755 "$PKGROOT/DEBIAN/postinst"
 install -m 0755 "$HERE/debian/prerm" "$PKGROOT/DEBIAN/prerm"
 install -m 0755 "$HERE/debian/postrm" "$PKGROOT/DEBIAN/postrm"
 install -m 0644 "$HERE/debian/conffiles" "$PKGROOT/DEBIAN/conffiles"

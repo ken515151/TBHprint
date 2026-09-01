@@ -47,7 +47,9 @@ case "$1" in
     if [ ! -x /opt/tbhprint/venv/bin/python ]; then
         python3 -m venv --system-site-packages /opt/tbhprint/venv
     fi
-    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade /opt/tbhprint/app
+    # Wheels only - the tbhprint wheel was built at package time (build.sh),
+    # so no setuptools/build step ever runs on this machine.
+    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade "tbhprint==__VERSION__"
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload

@@ -20,11 +20,17 @@ WINDOWS_ADDRESS = ("127.0.0.1", 47832)
 TRAY_COMMANDS = ("open", "quit")
 
 
+def runtime_dir() -> str:
+    """Per-user, user-writable: where the tray keeps its socket and lock on
+    Linux/macOS. Never the daemon's state dir - that belongs to the
+    `tbhprint` service user and the desktop user cannot write there."""
+    return os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+
+
 def default_address() -> str | tuple[str, int]:
     if sys.platform.startswith("win"):
         return WINDOWS_ADDRESS
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-    return os.path.join(runtime_dir, "tbhprint-tray.sock")
+    return os.path.join(runtime_dir(), "tbhprint-tray.sock")
 
 
 class TrayDispatcher:

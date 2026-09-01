@@ -273,8 +273,12 @@ def main(config_path: str, *, state_dir: str | None = None, dry_run: bool = Fals
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     state_dir = state_dir or cfgmod.default_state_dir()
 
+    # Windows: the state dir is the user's own (%LOCALAPPDATA%). Linux: the
+    # state dir is the service's (/var/lib/tbhprint, not ours to write), so
+    # the tray's lock lives beside its socket in the user's runtime dir.
+    lock_dir = state_dir if sys.platform.startswith("win") else traychannel.runtime_dir()
     lock = singleinstance.SingleInstanceLock(singleinstance.TRAY_MUTEX_NAME,
-                                             lock_path=os.path.join(state_dir, "tray.lock"))
+                                             lock_path=os.path.join(lock_dir, "tbhprint-tray.lock"))
     try:
         lock.acquire()
     except singleinstance.AlreadyRunning:

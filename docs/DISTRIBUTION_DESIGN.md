@@ -284,3 +284,27 @@ ticket label printed through GDI to *Microsoft Print to PDF* → acked →
 Settings opened from the Start-Menu path → supervisor restarted a killed
 agent → silent uninstall clean. Real label/laser printers and a real Linux
 desktop remain the owner's test.
+
+### Linux, run for real (2026-09-01, Docker ubuntu:22.04 with systemd + CUPS)
+
+A systemd container (`--privileged`, `/sbin/init`) with CUPS + cups-pdf
+stood in for a Mint 21 desk. Found and fixed by actually running it:
+
+- The first `.deb` built `tbhprint` on the target with pip; under a
+  `--system-site-packages` venv on 22.04 the isolated build env produced
+  `UNKNOWN-0.0.0` and the service crash-looped. The package now carries a
+  pre-built `tbhprint` wheel and `postinst` only installs wheels (two
+  steps: force-reinstall `tbhprint` itself `--no-deps`, then resolve
+  `tbhprint[tray]`; Pillow/tk/gi from the distro).
+- `pystray`'s Linux deps (`six`, `python-xlib`) are vendored; `keyring`
+  is not shipped on Linux (SecretStorage needs compiled `cryptography`).
+- The tray's single-instance lock lives in `$XDG_RUNTIME_DIR` beside its
+  socket, not in the service's `/var/lib/tbhprint`.
+
+Verified on that box: install → service active, socket `0660 tbhprint` →
+paired with the demo tenant → server-queued ticket label printed through
+`lp` to the CUPS PDF queue and acked → `kill -9` of the daemon, systemd
+restarted it (`NRestarts=1`) → staged `.deb` + marker picked up by the
+path unit, checksum re-verified, `apt-get` ran, marker cleared → tray
+applet ran as a desktop user under Xvfb and the desktop user drove the
+service over the socket via the `tbhprint` group.

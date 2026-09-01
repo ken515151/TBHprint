@@ -20,18 +20,16 @@
 requests==2.32.3
 websockets==15.0.1
 pystray==0.19.5
-keyring==25.7.0
+# pystray's Linux deps (pure): the appindicator backend uses python3-gi from apt,
+# the xorg fallback needs python-xlib.
+six==1.17.0
+python-xlib==0.33
 
 # --- transitive (pure-python) ---
 certifi==2026.7.22
 charset-normalizer==3.5.1
 idna==3.19
 urllib3==2.7.0
-jaraco.classes==3.4.0
-jaraco.context==6.1.2
-jaraco.functools==4.6.0
-more-itertools==11.1.0
-pywin32-ctypes==0.2.3
 
 # --- build-time only (not a runtime import, but pip install of
 #     /opt/tbhprint/app in postinst does a PEP 517 build, which spins up

@@ -48,10 +48,16 @@ case "$1" in
         python3 -m venv --system-site-packages /opt/tbhprint/venv
     fi
     # Wheels only - the tbhprint wheel was built at package time (build.sh),
-    # so no setuptools/build step ever runs on this machine. [tray,keyring]
-    # pulls pystray + keyring from the vendored wheels; Pillow/tk/gi come from
+    # so no setuptools/build step ever runs on this machine. [tray] pulls
+    # pystray (+ six, python-xlib) from the vendored wheels; --force-reinstall so a
+    # rebuilt package with the same version still replaces what is there; Pillow/tk/gi come from
     # the distro through --system-site-packages.
-    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade "tbhprint[tray,keyring]==__VERSION__"
+    # Two steps: (1) always replace tbhprint itself, even for a rebuilt
+    # package with the same version (--force-reinstall --no-deps, so it
+    # never tries to reinstall the distro's Pillow); (2) resolve the deps
+    # from the vendored wheels + system site-packages.
+    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade --force-reinstall --no-deps "tbhprint==__VERSION__"
+    /opt/tbhprint/venv/bin/pip install --no-index --find-links /opt/tbhprint/wheels --upgrade "tbhprint[tray]==__VERSION__"
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload

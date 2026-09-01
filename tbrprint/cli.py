@@ -25,6 +25,8 @@ import sys
 import threading
 import time
 
+import requests
+
 from . import __version__, api as apimod, config as cfgmod, control
 from .backends import PrintError, get_backend
 from .daemon import build
@@ -94,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
         return handler(args, config_path)
     except (cfgmod.ConfigError, apimod.ApiError, control.ControlError, PrintError) as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except requests.RequestException as exc:
+        print(f"error: could not reach the server: {exc}", file=sys.stderr)
         return 1
 
 

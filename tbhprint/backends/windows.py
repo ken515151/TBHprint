@@ -420,11 +420,11 @@ def cancel(backend_job_id: str, timeout: float = 10) -> None:
     """`backend_job_id` is `"<printer>#<spooler job id>"` (see `submit`) -
     Windows spooler job ids are per-printer, so we need the printer name
     back out of our own opaque id to open the right queue."""
-    _, _, win32print = _win32_modules()
     printer_name, sep, job_part = backend_job_id.partition("#")
     if not sep or not job_part.isdigit():
         raise PrintError(f"cannot cancel {backend_job_id!r}: not a Windows spooler job id")
     job_id = int(job_part)
+    _, _, win32print = _win32_modules()   # after the format check: same error on every platform
     try:
         h = win32print.OpenPrinter(printer_name)
     except Exception as exc:

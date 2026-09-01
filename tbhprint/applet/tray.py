@@ -237,15 +237,19 @@ def _build_supervisor(config_path: str, state_dir: str, *, dry_run: bool, verbos
         os.makedirs(state_dir, exist_ok=True)
         pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
         exe = pythonw if os.path.exists(pythonw) else sys.executable
-        argv = [exe, "-m", "tbhprint", "--config", config_path, "run", "--supervised", "--state-dir", state_dir]
+        # -B / PYTHONDONTWRITEBYTECODE: the child must never write __pycache__
+        # into the per-user install tree - the uninstaller only removes what
+        # it installed, and a bytecode cache would leave a phantom directory.
+        argv = [exe, "-B", "-m", "tbhprint", "--config", config_path, "run", "--supervised", "--state-dir", state_dir]
         if dry_run:
             argv.append("--dry-run")
         if verbose:
             argv.append("--verbose")
         log_fh = open(log_path, "a", encoding="utf-8")
         try:
+            env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
             return subprocess.Popen(argv, stdout=log_fh, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL,
+                                    stdin=subprocess.DEVNULL, env=env,
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         finally:
             log_fh.close()  # the child holds its own duplicated handle

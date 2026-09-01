@@ -224,6 +224,11 @@ Write-Host "Copied pywin32_system32 DLLs beside python.exe."
 # pywin32 does drop its own pywin32.pth doing this already, but the design
 # calls for our own tbhprint.pth too (belt-and-braces if a future pywin32
 # release ever stops shipping pywin32.pth under --target installs).
+# No bytecode ever written into the install tree (see sitecustomize.py
+# header): the uninstaller can only remove what the installer put there.
+Copy-Item (Join-Path $PSScriptRoot "sitecustomize.py") (Join-Path $sitePackages "sitecustomize.py") -Force
+Write-Host "Installed sitecustomize.py (dont_write_bytecode)."
+
 $pthPath = Join-Path $sitePackages "tbhprint.pth"
 Set-Content -Path $pthPath -Encoding ascii -Value @(
     "win32"

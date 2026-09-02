@@ -76,6 +76,15 @@ Document types: `ticket_label`, `booking_sheet`, `collection_form`,
 with no route fails the job with "no printer routed" so the reason is
 visible in TechBenchHub rather than silently dropped.
 
+### Linux: nothing to do after installing
+
+Installing the `.deb` adds you to the `tbhprint` group so the tray and the
+`tbhprint` command can talk to the agent. Since 0.1.6 you do **not** need to
+log out and back in for that to take effect: the launcher notices the group
+is missing from your current session and hands off through `sg tbhprint`
+by itself. (Before 0.1.6 a freshly installed tray showed "Agent not running"
+until the next login.)
+
 ## Tray applet (Windows and Linux)
 
 ```

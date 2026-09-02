@@ -309,3 +309,22 @@ restarted it (`NRestarts=1`) → staged `.deb` + marker picked up by the
 path unit, checksum re-verified, `apt-get` ran, marker cleared → tray
 applet ran as a desktop user under Xvfb and the desktop user drove the
 service over the socket via the `tbhprint` group.
+
+### Linux, upgrade run for real + the group hand-off (2026-09-02, 0.1.6)
+
+Owner reported the Linux client as "won't install updates" from memory; a
+full daemon-driven cycle in the systemd+CUPS container (install 0.1.4,
+pair, `tbhprint update`) fetched 0.1.5 through the server feed, verified
+the checksum, staged it, the root path unit ran `apt-get install`,
+restarted the service - 0.1.5 active in ~40 s; the daily root
+`tbhprint-update-check.service` also answered "Already up to date". So the
+update path is sound. What a real desktop DOES hit: the `tbhprint` group
+postinst adds the installer to only takes effect at the next login, and the
+"log out and back in" hint never reaches someone using a graphical package
+installer - reproduced with `setpriv` (group in /etc/group, not in the
+session): `Permission denied` on the control socket, tray says "Agent not
+running". Fix in `/usr/bin/tbhprint`: when the caller is a listed member
+without the session group, re-exec through `sg tbhprint -c` with every
+argument shell-quoted (names with spaces survive). Verified in the same
+container: CLI status, a spaced `--printer` name, and the tray under Xvfb
+all work without re-login; root and in-group callers unchanged.

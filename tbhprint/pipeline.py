@@ -261,6 +261,15 @@ class Pipeline:
 
     def _print_file(self, job_uuid: str, path: str, printer_name: str, copies: int,
                     options: list[str], title: str | None = None, local_only: bool = False) -> None:
+        """`copies` is passed straight through to the backend's `submit()`,
+        which (both cups.py and windows.py) issues one print job PER COPY
+        rather than one job holding every copy's pages - a single shared
+        job let a duplex-capable printer see copy 2 page 1 right after copy
+        1's last page and print two documents front/back on one sheet
+        (owner 2026-09-21). One job per copy means duplex only ever pairs
+        pages within the same document; this method just retries the whole
+        multi-copy `submit()` call as one unit on failure, so a retry after
+        a partial failure reprints all copies rather than resuming mid-way."""
         self.store.set_status(job_uuid, "printing", printer=printer_name, copies=copies)
         if self.dry_run:
             log.info("[dry-run] would print %s on %s x%d opts=%s", path, printer_name, copies, options)

@@ -4,21 +4,25 @@ No external program (SumatraPDF and the shell "print" verb are gone - see
 docs/DISTRIBUTION_DESIGN.md section 2). The flow for one job:
 
   1. Open the printer, read its DEVMODE, apply duplex/paper options, and
-     ``CreateDC("WINSPOOL", printer, devmode)``.
-  2. ``StartDoc`` (the returned job id becomes our `backend_job_id`, as
-     ``"<printer>#<id>"`` so `cancel()` can re-open the right queue).
-  3. For each copy, for each page: pypdfium2 rasterises the page at the
-     device's DPI, we auto-rotate when the page's aspect does not match
+     ``CreateDC("WINSPOOL", printer, devmode)`` - once, reused below.
+  2. For each copy: ``StartDoc`` (the returned job id becomes our
+     `backend_job_id`, as ``"<printer>#<id>"`` so `cancel()` can re-open
+     the right queue), then for each page pypdfium2 rasterises the page at
+     the device's DPI, we auto-rotate when the page's aspect does not match
      the printable area (label printers), scale to fit (or not, for
      `fit=none`), and ``StretchDIBits`` it onto the page - ``StartPage`` /
-     ``EndPage`` around each.
-  4. ``EndDoc``. Any exception aborts the job (``AbortDoc``) and raises
-     `PrintError` with the driver name and the real Win32 error text.
+     ``EndPage`` around each - then ``EndDoc``. Any exception aborts that
+     copy's job (``AbortDoc``) and raises `PrintError` with the driver name
+     and the real Win32 error text.
 
 Copies are looped by us, never via `dmCopies` - drivers routinely ignore
-that field. The whole job runs on a worker thread so a hung driver
-becomes a failed print job, never a hung agent (the existing
-`print_submit_s` timeout applies).
+that field. Each copy gets its OWN StartDoc/EndDoc job, never every copy's
+pages inside one job: a shared job let a duplex-capable driver see copy 2
+page 1 right after copy 1's last page and print the two documents
+front/back on one sheet (owner 2026-09-21). One job per copy means duplex
+only ever pairs pages within the same document. The whole job runs on a
+worker thread so a hung driver becomes a failed print job, never a hung
+agent (the existing `print_submit_s` timeout applies).
 
 The pure fit/rotate/scale maths lives in `compute_page_transform()` - it
 takes plain numbers in and out, so it is unit-tested without pywin32.
@@ -311,10 +315,28 @@ def _print_page(gdi32, hdc: int, page, device: DeviceGeometry, opts: dict[str, A
 
 def _print_pdf(printer: str, pdf_path: str, *, copies: int, options: list[str] | None,
               title: str | None, output_path: str | None = None) -> str:
-    """The real GDI print job. `output_path` is the `StartDoc` DOCINFO
-    `Output` override used by the print-to-PDF integration test (and, on a
-    printer that always writes to file, could be used the same way for
-    real jobs)."""
+    """The real GDI print job. One ``StartDocW``/``EndDoc`` pair PER COPY,
+    never one job containing every copy's pages back to back - a shared job
+    let a duplex-capable driver see copy 2 page 1 immediately after copy
+    1's last page and print the two documents front/back on one sheet
+    (owner 2026-09-21: two invoices landed on one sheet). Splitting into
+    one job per copy means duplex only ever pairs pages within the same
+    document. The printer/devmode/DC and the source PDF are opened once and
+    reused across copies; a DC accepts consecutive StartDoc/EndDoc
+    sequences, so only the StartDocW/EndDoc bracket repeats.
+
+    `output_path` is the `StartDoc` DOCINFO `Output` override used by the
+    print-to-PDF integration test (and, on a printer that always writes to
+    file, could be used the same way for real jobs); with `copies=1` this
+    is unchanged from before.
+
+    Returns the LAST copy's `"<printer>#<job id>"`. Status tracking follows
+    that one job: each copy's StartDoc/EndDoc pair completes (synchronously)
+    before the next starts, so if the last one succeeded every earlier copy
+    already printed too. A failure on any copy aborts that copy
+    (``AbortDoc``, when it had started) and raises `PrintError` immediately
+    - earlier copies that already completed are unaffected.
+    """
     import pypdfium2 as pdfium
 
     win32con, win32gui, win32print = _win32_modules()
@@ -339,25 +361,26 @@ def _print_pdf(printer: str, pdf_path: str, *, copies: int, options: list[str] |
     try:
         device = _device_geometry(gdi32, hdc)
         doc_name = (title or "TBHprint job")[:255]
-        doc_info = _DOCINFOW(ctypes.sizeof(_DOCINFOW), doc_name, output_path or opts["output"], None, 0)
-        job_id = gdi32.StartDocW(ctypes.c_void_p(hdc), ctypes.byref(doc_info))
-        if job_id <= 0:
-            raise _win32_error(gdi32, "StartDoc", driver_name)
+        doc = pdfium.PdfDocument(pdf_path)
         try:
-            doc = pdfium.PdfDocument(pdf_path)
-            try:
-                if len(doc) == 0:
-                    raise PrintError(f"{pdf_path} has no pages")
-                for _ in range(max(1, copies)):
+            if len(doc) == 0:
+                raise PrintError(f"{pdf_path} has no pages")
+            job_id = 0
+            for _ in range(max(1, copies)):
+                doc_info = _DOCINFOW(ctypes.sizeof(_DOCINFOW), doc_name, output_path or opts["output"], None, 0)
+                job_id = gdi32.StartDocW(ctypes.c_void_p(hdc), ctypes.byref(doc_info))
+                if job_id <= 0:
+                    raise _win32_error(gdi32, "StartDoc", driver_name)
+                try:
                     for page_index in range(len(doc)):
                         _print_page(gdi32, hdc, doc[page_index], device, opts, driver_name)
-            finally:
-                doc.close()
-        except Exception:
-            gdi32.AbortDoc(ctypes.c_void_p(hdc))
-            raise
-        if gdi32.EndDoc(ctypes.c_void_p(hdc)) <= 0:
-            raise _win32_error(gdi32, "EndDoc", driver_name)
+                except Exception:
+                    gdi32.AbortDoc(ctypes.c_void_p(hdc))
+                    raise
+                if gdi32.EndDoc(ctypes.c_void_p(hdc)) <= 0:
+                    raise _win32_error(gdi32, "EndDoc", driver_name)
+        finally:
+            doc.close()
         return f"{printer}#{job_id}"
     finally:
         win32gui.DeleteDC(hdc)

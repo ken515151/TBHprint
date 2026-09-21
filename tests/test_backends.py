@@ -1,4 +1,6 @@
+import contextlib
 import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -21,14 +23,45 @@ def test_get_backend_by_name_and_auto():
 def test_cups_submit_parses_request_id():
     proc = subprocess.CompletedProcess(["lp"], 0, stdout="request id is HP_LaserJet-42 (1 file(s))\n", stderr="")
     with mock.patch("tbhprint.backends.cups._run", return_value=proc) as run:
-        assert cups.submit("HP_LaserJet", "/tmp/x.pdf", copies=2, options=["sides=one-sided"], title="Label #1") == "HP_LaserJet-42"
+        assert cups.submit("HP_LaserJet", "/tmp/x.pdf", copies=1, options=["sides=one-sided"], title="Label #1") == "HP_LaserJet-42"
     argv = run.call_args.args[0]
-    assert argv[:5] == ["lp", "-d", "HP_LaserJet", "-n", "2"]
+    assert argv[:5] == ["lp", "-d", "HP_LaserJet", "-n", "1"]
     assert "-o" in argv and "sides=one-sided" in argv
     proc = subprocess.CompletedProcess(["lp"], 1, stdout="", stderr="lp: The printer or class does not exist.")
     with mock.patch("tbhprint.backends.cups._run", return_value=proc):
         with pytest.raises(PrintError, match="does not exist"):
             cups.submit("nope", "/tmp/x.pdf")
+
+
+def test_cups_submit_issues_one_lp_job_per_copy():
+    # Duplex must only ever pair pages within one document: each copy gets
+    # its own `lp` job (`-n 1`), never a single `lp -n 3` job that would let
+    # the driver see copy 2's first page right after copy 1's last page.
+    responses = [
+        subprocess.CompletedProcess(["lp"], 0, stdout="request id is HP_LaserJet-40 (1 file(s))\n", stderr=""),
+        subprocess.CompletedProcess(["lp"], 0, stdout="request id is HP_LaserJet-41 (1 file(s))\n", stderr=""),
+        subprocess.CompletedProcess(["lp"], 0, stdout="request id is HP_LaserJet-42 (1 file(s))\n", stderr=""),
+    ]
+    with mock.patch("tbhprint.backends.cups._run", side_effect=responses) as run:
+        request_id = cups.submit("HP_LaserJet", "/tmp/x.pdf", copies=3,
+                                 options=["sides=one-sided"], title="Label #1")
+    assert request_id == "HP_LaserJet-42"  # the last copy's id
+    assert run.call_count == 3
+    for call in run.call_args_list:
+        argv = call.args[0]
+        assert argv[:5] == ["lp", "-d", "HP_LaserJet", "-n", "1"]
+        assert "-o" in argv and "sides=one-sided" in argv
+
+
+def test_cups_submit_names_which_copy_failed():
+    responses = [
+        subprocess.CompletedProcess(["lp"], 0, stdout="request id is HP_LaserJet-40 (1 file(s))\n", stderr=""),
+        subprocess.CompletedProcess(["lp"], 1, stdout="", stderr="lp: unable to contact printer."),
+    ]
+    with mock.patch("tbhprint.backends.cups._run", side_effect=responses) as run:
+        with pytest.raises(PrintError, match="copy 2 of 3 failed"):
+            cups.submit("HP_LaserJet", "/tmp/x.pdf", copies=3)
+    assert run.call_count == 2
 
 
 def test_cups_list_printers_handles_no_destinations():
@@ -142,6 +175,118 @@ def test_compute_page_transform_rejects_bad_input():
         windows.compute_page_transform(100, 100, device, orientation="sideways")
     with pytest.raises(ValueError):
         windows.compute_page_transform(100, 100, device, fit="shrink")
+
+
+# -- windows: _print_pdf one-job-per-copy (fully faked win32/gdi32/pypdfium2) -
+
+class _FakeGdi32:
+    """Stands in for the real gdi32 WinDLL: records the StartDocW/EndDoc/
+    AbortDoc call sequence so a test can assert one job per copy, and hands
+    out an incrementing job id per StartDocW (or fails on request, to
+    exercise the abort/raise path)."""
+
+    def __init__(self, *, fail_start_doc_on_call: int | None = None):
+        self.calls: list[str] = []
+        self._fail_start_doc_on_call = fail_start_doc_on_call
+        self._start_doc_calls = 0
+        self._next_job_id = 1
+
+    def GetDeviceCaps(self, hdc, idx):
+        return 100
+
+    def StartDocW(self, hdc, doc_info):
+        self._start_doc_calls += 1
+        self.calls.append("StartDocW")
+        if self._start_doc_calls == self._fail_start_doc_on_call:
+            return 0
+        job_id = self._next_job_id
+        self._next_job_id += 1
+        return job_id
+
+    def EndDoc(self, hdc):
+        self.calls.append("EndDoc")
+        return 1
+
+    def AbortDoc(self, hdc):
+        self.calls.append("AbortDoc")
+        return 1
+
+
+class _FakePdfDocument:
+    """A one-page pypdfium2.PdfDocument stand-in; `_print_page` is mocked
+    out below so nothing here needs to render anything real."""
+
+    def __init__(self, path):
+        self.path = path
+        self.closed = False
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, index):
+        return mock.Mock(name=f"page{index}")
+
+    def close(self):
+        self.closed = True
+
+
+@contextlib.contextmanager
+def _fake_print_pdf_plumbing(gdi32, *, devmode=mock.sentinel.devmode):
+    """Fakes everything `_print_pdf` touches other than the gdi32
+    StartDocW/EndDoc/AbortDoc sequence under test: pywin32 (never installed
+    off Windows) and pypdfium2 (Windows-only dependency, not installed in
+    this test environment either)."""
+    win32con = mock.Mock()
+    win32print = mock.Mock()
+    win32print.OpenPrinter.return_value = "hprinter"
+    win32print.GetPrinter.return_value = {"pDriverName": "FakeDriver", "pDevMode": devmode}
+    win32gui = mock.Mock()
+    win32gui.CreateDC.return_value = 4242  # truthy fake HDC
+
+    fake_pypdfium2 = mock.Mock()
+    fake_pypdfium2.PdfDocument.side_effect = _FakePdfDocument
+
+    # ctypes.get_last_error/FormatError are Windows-only (used by
+    # `_win32_error` on a StartDoc/EndDoc/CreateDC failure) - stub them in
+    # so the failure path is testable on the Linux CI that runs this suite.
+    with mock.patch("tbhprint.backends.windows._win32_modules", return_value=(win32con, win32gui, win32print)), \
+         mock.patch("tbhprint.backends.windows._gdi32", return_value=gdi32), \
+         mock.patch("tbhprint.backends.windows._print_page"), \
+         mock.patch.dict(sys.modules, {"pypdfium2": fake_pypdfium2}), \
+         mock.patch("ctypes.get_last_error", return_value=87, create=True), \
+         mock.patch("ctypes.FormatError", return_value="The parameter is incorrect.", create=True):
+        yield
+
+
+def test_windows_print_pdf_starts_one_job_per_copy():
+    gdi32 = _FakeGdi32()
+    with _fake_print_pdf_plumbing(gdi32):
+        job_id = windows._print_pdf("HP LaserJet", "x.pdf", copies=2, options=None, title="t")
+    # Two full StartDocW/EndDoc pairs, in order - never one job holding
+    # both copies' pages, which is what let a duplex driver print copy 2
+    # on the back of copy 1's last sheet.
+    assert gdi32.calls == ["StartDocW", "EndDoc", "StartDocW", "EndDoc"]
+    assert job_id == "HP LaserJet#2"  # the LAST copy's job id
+
+
+def test_windows_print_pdf_copies_1_behaves_as_before():
+    gdi32 = _FakeGdi32()
+    with _fake_print_pdf_plumbing(gdi32):
+        job_id = windows._print_pdf("HP LaserJet", "x.pdf", copies=1, options=None, title="t")
+    assert gdi32.calls == ["StartDocW", "EndDoc"]
+    assert job_id == "HP LaserJet#1"
+
+
+def test_windows_print_pdf_aborts_and_raises_on_second_copy_start_doc_failure():
+    gdi32 = _FakeGdi32(fail_start_doc_on_call=2)
+    with _fake_print_pdf_plumbing(gdi32):
+        with pytest.raises(PrintError, match="StartDoc"):
+            windows._print_pdf("HP LaserJet", "x.pdf", copies=3, options=None, title="t")
+    # Copy 1 completed in full (its own job) before copy 2 failed to start -
+    # each copy is independent, so the first copy that already printed is
+    # unaffected by the second copy's failure. The failed StartDocW never
+    # produced a job to abort, and no third copy is attempted.
+    assert gdi32.calls == ["StartDocW", "EndDoc", "StartDocW"]
 
 
 # -- windows: submit/cancel plumbing (mocked pywin32/pypdfium2) ---------------

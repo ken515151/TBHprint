@@ -110,7 +110,23 @@ class HistoryWindow(_Window):
             self.tree.heading(col, text=col.title())
             self.tree.column(col, width=width, anchor="w")
         self.tree.pack(fill="both", expand=True, pady=6)
+        # The detail column is 200 px wide and an error message rarely fits
+        # it: double-click (or Enter on) a row to read the whole thing
+        # (owner 2026-09-21, alongside the Log window's word-wrap).
+        self.tree.bind("<Double-1>", lambda e: self.show_detail())
+        self.tree.bind("<Return>", lambda e: self.show_detail())
         self.jobs: dict[str, dict[str, Any]] = {}
+
+    def show_detail(self) -> None:
+        iid = self._selected()
+        if iid is None:
+            return
+        job = self.jobs.get(iid) or {}
+        lines = [f"{label}: {value}" for label, value in zip(("Time", "Document", "Printer", "Status"), job_row(job))]
+        detail = str(job.get("detail") or job.get("error") or "").strip()
+        lines.append("")
+        lines.append(detail or "(no detail)")
+        messagebox.showinfo("TBHprint - Job detail", "\n".join(lines), parent=self.top)
 
     def refresh(self) -> None:
         status = self.filter_var.get()
@@ -347,8 +363,17 @@ class LogWindow(_Window):
     def build(self) -> None:
         frame = ttk.Frame(self.top, padding=6)
         frame.pack(fill="both", expand=True)
-        self.text = tk.Text(frame, wrap="none", font=("Consolas" if _is_windows() else "Monospace", 9))
-        self.text.pack(fill="both", expand=True)
+        # Word-wrapped with a scrollbar (owner 2026-09-21: "there is no
+        # wordwrap, and it's impossible to view everything on the screen") -
+        # a log line that carries a whole exception used to run off the
+        # right edge with no way to scroll to it.
+        body = ttk.Frame(frame)
+        body.pack(fill="both", expand=True)
+        self.text = tk.Text(body, wrap="word", font=("Consolas" if _is_windows() else "Monospace", 9))
+        scroll = ttk.Scrollbar(body, orient="vertical", command=self.text.yview)
+        self.text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.text.pack(side="left", fill="both", expand=True)
         ttk.Button(frame, text="Refresh", command=self.refresh).pack(pady=4)
 
     def refresh(self) -> None:

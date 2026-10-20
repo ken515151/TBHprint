@@ -18,6 +18,7 @@ import json
 import logging
 import random
 import threading
+import time
 from typing import Any, Callable
 
 import websockets
@@ -33,6 +34,13 @@ _BACKOFF_START = 1.0
 _BACKOFF_CAP = 60.0
 _DEFAULT_ACTIVITY_TIMEOUT = 120
 _PONG_TIMEOUT = 30
+# A session that lived this long before it was cut was healthy: the edge recycled it (2026-10-20), so the agent
+# reconnects at once and says so at info; only short-lived sessions are failures that back off and warn.
+_HEALTHY_SESSION_S = 60.0
+
+
+def _fmt_seconds(seconds: float) -> str:
+    return f"{int(seconds // 60)}m{int(seconds % 60):02d}s" if seconds >= 60 else f"{seconds:.0f}s"
 
 
 class ReverbTransport:
@@ -88,11 +96,17 @@ class ReverbTransport:
     async def _run(self) -> None:
         backoff = _BACKOFF_START
         while not self._stopping.is_set():
+            started = time.monotonic()
             try:
                 await self._session()
                 backoff = _BACKOFF_START
             except Exception as exc:
-                log.warning("reverb connection failed: %s", exc)
+                lived = time.monotonic() - started
+                if lived >= _HEALTHY_SESSION_S:
+                    log.info("reverb connection recycled after %s: %s", _fmt_seconds(lived), exc)
+                    backoff = _BACKOFF_START
+                else:
+                    log.warning("reverb connection failed after %s: %s", _fmt_seconds(lived), exc)
             if self._stopping.is_set():
                 break
             self.on_state("disconnected")

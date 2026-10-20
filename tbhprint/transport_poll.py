@@ -92,6 +92,8 @@ class PollerTransport:
             client = self.client_provider()
             if client is None:
                 return 0
+            if hasattr(client, "drop_idle_connections"):
+                client.drop_idle_connections()
             jobs = client.list_jobs()
             for payload in jobs:
                 self.on_job(payload)

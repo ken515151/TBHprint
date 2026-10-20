@@ -19,6 +19,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from . import __version__
 from .config import Server
@@ -108,10 +110,27 @@ def pair(server_url: str, code: str, name: str) -> dict[str, Any]:
     return _check(resp, "pair")
 
 
+def _session() -> requests.Session:
+    """A GET is retried twice on a fresh connection when the far end closes a kept-alive one mid-request
+    (urllib3's 'connection aborted' / RemoteDisconnected - the edge recycling idle connections, 2026-10-20);
+    a POST is never retried, since an ack or a channel auth must not land twice."""
+    session = requests.Session()
+    retry = Retry(total=2, connect=2, read=2, status=0, backoff_factor=0.5,
+                  allowed_methods=frozenset({"GET", "HEAD"}), raise_on_status=False)
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    return session
+
+
 class Client:
     def __init__(self, server: Server, session: requests.Session | None = None):
         self.server = server
-        self.session = session or requests.Session()
+        self.session = session or _session()
+
+    def drop_idle_connections(self) -> None:
+        """Forget pooled connections before a sweep that follows a long quiet gap, so a connection the edge has
+        closed since is never reused; the next request opens a fresh one."""
+        self.session.close()
 
     def _headers(self) -> dict[str, str]:
         return _headers(self.server.token)

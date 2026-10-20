@@ -133,6 +133,12 @@ tbhprint update --check-only # ask TechBenchHub for a newer version
 4. Each job: `ack received` → fetch `document_url` (must be on the paired
    host, HTTPS, PDF, ≤ 25 MB) → print → `ack printed` or `ack failed`
    with the reason.
+5. Recovery (0.1.9): a websocket cut after a healthy session (the edge or a
+   deploy recycling it) reconnects at once and is logged as information;
+   only a session that fails within a minute warns and backs off. A sweep's
+   `GET /jobs` drops any idle pooled connection first and retries twice on a
+   fresh one, so a connection the far end closed never counts as a failure;
+   a `POST` (ack, channel auth) is never retried.
 
 ## Development
 

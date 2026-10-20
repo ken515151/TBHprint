@@ -1,3 +1,4 @@
+import asyncio
 import json
 from unittest import mock
 
@@ -147,3 +148,49 @@ def test_poller_heartbeat_mode_sweeps_quietly():
 
     with pytest.raises(ValueError):
         poller.set_mode("sideways")
+
+
+def test_client_retries_a_get_on_a_fresh_connection_but_never_a_post():
+    """The edge recycles kept-alive connections (2026-10-20): a sweep's GET is retried, an ack's POST is not."""
+    client = apimod.Client(mock.Mock(token="t", api=lambda path: f"https://shop.example/api/print/v1/{path}"))
+    retry = client.session.get_adapter("https://").max_retries
+    assert retry.read == 2 and retry.connect == 2
+    assert "GET" in retry.allowed_methods and "POST" not in retry.allowed_methods
+
+
+def test_poller_drops_idle_connections_before_each_sweep():
+    client = mock.Mock()
+    client.list_jobs.return_value = []
+    poller = PollerTransport(lambda: client, on_job=lambda p: None, interval_s=10)
+    poller.sweep_once()
+    client.drop_idle_connections.assert_called_once()
+
+
+def test_reverb_drop_after_a_healthy_session_is_info_and_reconnects_at_once(monkeypatch, caplog):
+    """A session cut after a minute or more was recycled by the edge: info, backoff reset; a short one warns."""
+    t = tr.ReverbTransport("wss://x/app/key", "private-print.1", lambda s, c: "k:sig", on_job=lambda p: None)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(tr.time, "monotonic", lambda: clock["now"])
+    lives = iter([300.0, 5.0])
+
+    async def session():
+        clock["now"] += next(lives)
+        raise ConnectionError("no close frame received or sent")
+
+    delays: list[float] = []
+
+    async def fake_wait(coro, timeout):
+        delays.append(timeout - 1)
+        coro.close()
+        if len(delays) == 2:
+            t._stopping.set()
+
+    monkeypatch.setattr(t, "_session", session)
+    monkeypatch.setattr(tr.asyncio, "wait_for", fake_wait)
+    monkeypatch.setattr(tr.random, "uniform", lambda a, b: 0.0)
+    with caplog.at_level("INFO", logger="tbhprint.reverb"):
+        asyncio.run(t._run())
+    levels = [(r.levelname, r.getMessage()) for r in caplog.records if "reverb connection" in r.getMessage()]
+    assert levels[0][0] == "INFO" and "recycled after 5m00s" in levels[0][1]
+    assert levels[1][0] == "WARNING" and "failed after 5s" in levels[1][1]
+    assert delays[0] == pytest.approx(tr._BACKOFF_START)

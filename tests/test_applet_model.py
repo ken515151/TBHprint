@@ -46,3 +46,14 @@ def test_icons_render_every_state():
     for state in ("connected", "degraded", "paused", "error", "unpaired", "starting", "whatever"):
         image = icons.render(state, size=32, badge=3)
         assert image.size == (32, 32)
+
+
+def test_log_scroll_target_follows_the_tail_only_from_the_bottom():
+    from tbhprint.applet.model import log_scroll_target
+
+    lines = ["09:00 a", "09:01 b", "09:02 c", "09:03 d"]
+    assert log_scroll_target(lines, "09:01 b", was_at_bottom=True) is None      # reader at the bottom: follow
+    assert log_scroll_target(lines, "09:01 b", was_at_bottom=False) == 2        # reading above: stay on that line
+    assert log_scroll_target(lines, "08:59 gone", was_at_bottom=False) == 1     # rolled out of the tail: top
+    assert log_scroll_target(lines, "", was_at_bottom=False) == 1
+    assert log_scroll_target([], "", was_at_bottom=True) is None

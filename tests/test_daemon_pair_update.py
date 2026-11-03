@@ -109,7 +109,7 @@ def test_check_for_update_check_only_uses_update_check(tmp_path):
         daemon.client = mock.Mock()
         manifest = updatemod.UpdateManifest(version="1.2.3", url="https://x/a", sha256="a", notes="notes")
         with mock.patch("tbhprint.daemon.updatemod.check", return_value=manifest) as fake_check, \
-             mock.patch("tbhprint.daemon.updatemod.check_and_install") as fake_install:
+             mock.patch("tbhprint.daemon.updatemod.install_manifest") as fake_install:
             result = daemon.check_for_update(check_only=True)
         fake_check.assert_called_once()
         fake_install.assert_not_called()
@@ -118,16 +118,38 @@ def test_check_for_update_check_only_uses_update_check(tmp_path):
         store.close()
 
 
-def test_check_for_update_full_cycle_uses_check_and_install(tmp_path):
+def test_check_for_update_answers_at_once_and_installs_on_its_own_thread(tmp_path):
+    """0.1.11: the tray's "Check for updates" gave the agent three seconds, but the command downloaded
+    and installed the release before replying, so the tray said "Could not reach the agent" and the
+    install landed anyway (owner 2026-11-03). The reply now comes back before the download starts."""
+    import threading
+
     daemon, store, pipeline, config_path = _daemon(tmp_path)
     try:
         daemon.client = mock.Mock()
         manifest = updatemod.UpdateManifest(version="1.2.3", url="https://x/a", sha256="a")
-        with mock.patch("tbhprint.daemon.updatemod.check_and_install", return_value=manifest) as fake_install:
-            result = daemon.check_for_update(check_only=False)
-        fake_install.assert_called_once()
-        assert fake_install.call_args.kwargs["linux_update_dir"] == daemon.cfg.update.dir
-        assert result == {"version": "1.2.3", "notes": ""}
+        release = threading.Event()
+        calls = []
+
+        def slow_install(client, m, state_dir, **kwargs):
+            calls.append((m, state_dir, kwargs))
+            release.wait(5)
+            return True
+
+        with mock.patch("tbhprint.daemon.updatemod.check", return_value=manifest), \
+             mock.patch("tbhprint.daemon.updatemod.install_manifest", side_effect=slow_install):
+            first = daemon.check_for_update(check_only=False)
+            second = daemon.check_for_update(check_only=False)   # while the first is still downloading
+            release.set()
+            daemon._install_thread.join(5)
+            third = daemon.check_for_update(check_only=False)    # the lock is free again
+            daemon._install_thread.join(5)
+        assert first == {"version": "1.2.3", "notes": "", "installing": True}
+        assert second == {"version": "1.2.3", "notes": "", "installing": False}
+        assert third["installing"] is True
+        assert len(calls) == 2
+        assert calls[0][1].endswith("update")
+        assert calls[0][2]["linux_update_dir"] == daemon.cfg.update.dir
     finally:
         store.close()
 

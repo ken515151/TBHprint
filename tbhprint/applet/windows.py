@@ -15,7 +15,7 @@ from typing import Any
 from .. import api as apimod
 from .. import config as cfgmod
 from .. import control
-from .model import job_row, routing_rows, routing_update, state_label
+from .model import job_row, log_scroll_target, routing_rows, routing_update, state_label
 
 PAD = {"padx": 8, "pady": 4}
 
@@ -378,10 +378,19 @@ class LogWindow(_Window):
 
     def refresh(self) -> None:
         lines = self.app.try_call("get_log_tail", n=300) or ["(agent not running)"]
+        # Follow the tail only when the reader is at the bottom; otherwise keep the line they had at
+        # the top where it is (0.1.11 - every refresh used to jump to the newest line).
+        was_at_bottom = self.text.yview()[1] >= 0.999
+        top_index = self.text.index("@0,0 linestart")
+        top_line = self.text.get(top_index, f"{top_index} lineend")
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.insert("1.0", "\n".join(lines))
-        self.text.see("end")
+        keep = log_scroll_target(lines, top_line, was_at_bottom)
+        if keep is None:
+            self.text.see("end")
+        else:
+            self.text.yview(f"{keep}.0")
         self.text.configure(state="disabled")
 
 

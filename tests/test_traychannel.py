@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from tbhprint import control, traychannel
@@ -64,3 +65,34 @@ def test_default_address_windows_vs_posix(monkeypatch):
     address = traychannel.default_address()
     assert address.endswith("tbhprint-tray.sock")
     assert address.startswith("/run/user/1000")
+
+
+def test_control_client_never_resends_a_request_whose_reply_timed_out():
+    """The daemon has the request and is still working on it; a re-send ran "update" twice (2026-11-03)."""
+    import socket
+    import threading
+
+    from tbhprint import control
+
+    received = []
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(2)
+
+    def serve():
+        conn, _ = server.accept()
+        with conn:
+            received.append(conn.recv(4096))
+            threading.Event().wait(1.0)      # longer than the client's timeout; no reply
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    client = control.ControlClient(server.getsockname(), timeout=0.2)
+    try:
+        with pytest.raises(OSError):
+            client.call("update")
+    finally:
+        client.close()
+        thread.join(3)
+        server.close()
+    assert len(received) == 1

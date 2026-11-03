@@ -58,16 +58,18 @@ class TrayApplet:
 
     # -- control channel ----------------------------------------------------------
 
-    def call(self, cmd: str, **args) -> Any:
+    def call(self, cmd: str, timeout: float | None = None, **args) -> Any:
         client = self.client_factory()
+        if timeout is not None:
+            client.timeout = timeout
         try:
             return client.call(cmd, **args)
         finally:
             client.close()
 
-    def try_call(self, cmd: str, **args) -> Any:
+    def try_call(self, cmd: str, timeout: float | None = None, **args) -> Any:
         try:
-            return self.call(cmd, **args)
+            return self.call(cmd, timeout=timeout, **args)
         except (OSError, control.ControlError) as exc:
             log.debug("control %s failed: %s", cmd, exc)
             return None
@@ -130,7 +132,9 @@ class TrayApplet:
             self.notify(f"Test print failed: {exc}")
 
     def check_updates(self) -> None:
-        result = self.try_call("update")
+        # One server call inside the reply (connect 10 s, read 30 s), so this call gets more than the
+        # menu's three seconds; the download and install run on the agent's own thread.
+        result = self.try_call("update", timeout=45)
         if result is None:
             self.notify("Could not reach the agent to check for updates")
             return
@@ -139,7 +143,10 @@ class TrayApplet:
             self.notify("TBHprint is up to date")
             return
         notes = f" - {result['notes']}" if result.get("notes") else ""
-        self.notify(f"Update {version} installing{notes}")
+        if result.get("installing") is False:
+            self.notify(f"Update {version} is already downloading{notes}")
+            return
+        self.notify(f"Update {version} found - installing when no job is printing{notes}")
 
     def notify(self, message: str) -> None:
         try:

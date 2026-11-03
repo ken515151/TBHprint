@@ -126,7 +126,13 @@ GET /api/print/v1/update?platform=windows|linux&version=<current>
 mismatched (log + ErrorLog on the server via the existing failure path is
 NOT used - this is local; log + tray notification). Install only when no
 job is active; jobs arriving mid-install wait in the server queue and are
-caught up on restart.
+caught up on restart. The control command `update` replies as soon as the
+server has answered (`{version, notes, installing}`); the download and
+install run on the daemon's `update-install` thread under a lock, so a
+second request while one is running answers `installing: false` and
+starts nothing (0.1.11 - before, the reply waited for the install, the
+tray's 3 s call timed out as "Could not reach the agent" and its retry
+started a second download).
 
 - **Windows**: run `TBHprint-Setup-<ver>.exe /VERYSILENT /SUPPRESSMSGBOXES
   /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS

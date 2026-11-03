@@ -126,3 +126,18 @@ def routing_update(rows: list[dict[str, Any]], existing: dict[str, Any] | None =
     else:
         update["default_printer"] = None
     return update
+
+
+def log_scroll_target(new_lines: list[str], top_line: str | None, was_at_bottom: bool) -> int | None:
+    """Which line (1-based) the Log window keeps at the top after a refresh. None follows the tail: the
+    reader was already at the bottom. Otherwise the line they had at the top is found again in the new
+    tail and kept there; if it has rolled out of the tail the view stays at the top rather than jumping
+    to the newest line (owner 2026-11-03: "each new log line ... makes the scrolled window onto the
+    bottom even though you may be reviewing lines above")."""
+    if was_at_bottom:
+        return None
+    if top_line:
+        for index, line in enumerate(new_lines, start=1):
+            if line == top_line:
+                return index
+    return 1

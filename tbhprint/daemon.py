@@ -52,9 +52,14 @@ class Daemon:
         self._stop_event = threading.Event()
         self._update_stop = threading.Event()
         self._update_thread: threading.Thread | None = None
+        self._install_thread: threading.Thread | None = None
         # Serialises applying the server's websocket details: two sweeps (poller, connect catch-up,
         # `tbhprint catch-up`) carrying the same new block restart the websocket once, not twice.
         self._details_lock = threading.Lock()
+        # Held while an update is downloading or installing: the tray's "Check for updates", `tbhprint
+        # update` and the six-hourly check all go through _install_in_background, which answers at once
+        # and refuses to start a second download beside the first (0.1.11).
+        self._install_lock = threading.Lock()
 
     # -- transports -------------------------------------------------------
 
@@ -330,21 +335,48 @@ class Daemon:
             self.check_for_update()
 
     def check_for_update(self, *, check_only: bool = False) -> dict[str, Any] | None:
+        """One GET to the server, answered at once. Before 0.1.11 the control command also downloaded
+        and installed the release before replying: the tray gave it three seconds, reported "Could not
+        reach the agent" while the installer was still coming down, and the client's retry sent the
+        command again, so two downloads ran (owner 2026-11-03). Now the reply carries the version found
+        and whether the install was started; the download and install run on their own thread."""
         if self.client is None:
             return None
-        if check_only:
+        try:
+            manifest = updatemod.check(self.client)
+        except Exception as exc:
+            log.warning("update check failed: %s", exc)
+            return {"version": None}
+        if manifest is None:
+            log.debug("no update available (agent is %s)", __version__)
+            return {"version": None}
+        log.info("update %s available (currently %s)", manifest.version, __version__)
+        reply: dict[str, Any] = {"version": manifest.version, "notes": manifest.notes}
+        if not check_only:
+            reply["installing"] = self._install_in_background(manifest)
+        return reply
+
+    def _install_in_background(self, manifest: updatemod.UpdateManifest) -> bool:
+        """Start the download-verify-install of `manifest` on its own thread. False, and nothing
+        started, when one is already running."""
+        if not self._install_lock.acquire(blocking=False):
+            log.info("update %s is already downloading or installing", manifest.version)
+            return False
+        client = self.client
+
+        def run() -> None:
             try:
-                manifest = updatemod.check(self.client)
-            except Exception as exc:
-                log.warning("update check failed: %s", exc)
-                return {"version": None}
-            return {"version": manifest.version, "notes": manifest.notes} if manifest else {"version": None}
-        manifest = updatemod.check_and_install(
-            self.client, os.path.join(self.state_dir, "update"),
-            is_job_active=lambda: bool(self.store.active_jobs()),
-            linux_update_dir=self.cfg.update.dir,
-            on_installing=lambda m: log.info("update %s installing", m.version))
-        return {"version": manifest.version, "notes": manifest.notes} if manifest else {"version": None}
+                updatemod.install_manifest(
+                    client, manifest, os.path.join(self.state_dir, "update"),
+                    is_job_active=lambda: bool(self.store.active_jobs()),
+                    linux_update_dir=self.cfg.update.dir,
+                    on_installing=lambda m: log.info("update %s installing", m.version))
+            finally:
+                self._install_lock.release()
+
+        self._install_thread = threading.Thread(target=run, name="update-install", daemon=True)
+        self._install_thread.start()
+        return True
 
     # -- maintenance -------------------------------------------------------
 

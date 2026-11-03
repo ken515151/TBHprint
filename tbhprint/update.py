@@ -178,7 +178,19 @@ def check_and_install(client: apimod.Client, state_dir: str, *, is_job_active: C
     if manifest is None:
         log.debug("no update available (agent is %s)", __version__)
         return None
-    log.info("update %s available (currently %s)", manifest.version, __version__)
+    install_manifest(client, manifest, state_dir, is_job_active=is_job_active,
+                     linux_update_dir=linux_update_dir, on_installing=on_installing)
+    return manifest
+
+
+def install_manifest(client: apimod.Client, manifest: UpdateManifest, state_dir: str, *,
+                     is_job_active: Callable[[], bool], linux_update_dir: str = DEFAULT_LINUX_UPDATE_DIR,
+                     on_installing: Callable[[UpdateManifest], None] | None = None) -> bool:
+    """download -> verify -> install-when-idle for a manifest `check()` already returned. Minutes of
+    work (the installer comes through the server), so the daemon runs it on its own thread and
+    answers the tray or CLI at once (0.1.11). Never raises; True when the installer was handed to
+    the OS, False when the download, the checksum or the idle wait stopped it this cycle."""
+    log.info("update %s downloading (currently %s)", manifest.version, __version__)
     os.makedirs(state_dir, exist_ok=True)
     filename = os.path.basename(manifest.url.split("?")[0]) or f"tbhprint-{manifest.version}.bin"
     dest = os.path.join(state_dir, filename)
@@ -188,18 +200,18 @@ def check_and_install(client: apimod.Client, state_dir: str, *, is_job_active: C
         log.error("update %s download failed: %s", manifest.version, exc)
         with contextlib.suppress(OSError):
             os.remove(dest)
-        return manifest
+        return False
     if not verify_sha256(dest, manifest.sha256):
         log.error("update %s failed sha256 verification - refusing to install", manifest.version)
         with contextlib.suppress(OSError):
             os.remove(dest)
-        return manifest
+        return False
     log.info("update %s downloaded and verified", manifest.version)
     if on_installing:
         with contextlib.suppress(Exception):
             on_installing(manifest)
     try:
-        install_when_idle(manifest, dest, is_job_active=is_job_active, linux_update_dir=linux_update_dir)
+        return install_when_idle(manifest, dest, is_job_active=is_job_active, linux_update_dir=linux_update_dir)
     except Exception:
         log.exception("update %s install failed", manifest.version)
-    return manifest
+        return False

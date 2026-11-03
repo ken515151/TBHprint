@@ -149,6 +149,14 @@ tbhprint update --check-only # ask TechBenchHub for a newer version
    (`Origin: https://<shop host>`): a hosted Reverb admits only the browser
    origins of its own domains and answered an agent that sent none with
    `4009 Origin not allowed`, which the log now names.
+7. Updating (0.1.11): "Check for updates" and `tbhprint update` get their
+   answer as soon as the server has been asked; the download, checksum and
+   install-when-idle run on the agent's own thread, one at a time. Before,
+   the command replied only after the install, so the tray's three-second
+   call reported "Could not reach the agent" while the installer was still
+   coming down and then re-sent the command, starting a second download.
+   The tray's Log window follows the newest line only while scrolled to the
+   bottom; while reading older lines a refresh keeps the view where it is.
 
 ## Development
 

@@ -183,6 +183,20 @@ def test_check_and_install_happy_path_calls_install_when_idle(tmp_path):
     assert installing and installing[0].version == "2.0"
 
 
+def test_install_manifest_reports_a_refused_checksum_and_a_handed_over_install(tmp_path):
+    payload = b"the-installer-bytes"
+    good = updatemod.UpdateManifest(version="2.0", url="https://shop.techbenchhub.co.uk/dl/x.exe",
+                                    sha256=hashlib.sha256(payload).hexdigest())
+    bad = updatemod.UpdateManifest(version="2.0", url="https://shop.techbenchhub.co.uk/dl/x.exe", sha256="0" * 64)
+    client = _client()
+    client.session.get.return_value = Resp(200, chunks=[payload])
+    with mock.patch("tbhprint.update.install_when_idle", return_value=True) as install:
+        assert updatemod.install_manifest(client, bad, str(tmp_path), is_job_active=lambda: False) is False
+        install.assert_not_called()
+        assert updatemod.install_manifest(client, good, str(tmp_path), is_job_active=lambda: False) is True
+        install.assert_called_once()
+
+
 def test_check_and_install_returns_none_when_up_to_date(tmp_path):
     client = _client()
     client.session.get.return_value = Resp(200, {"version": None})

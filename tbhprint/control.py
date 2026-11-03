@@ -232,6 +232,12 @@ class ControlClient:
                 if not line:
                     raise OSError("connection closed")
                 break
+            except socket.timeout:
+                # The daemon has the request and is still working on it: re-sending would run the
+                # command twice (two update downloads at once, 2026-11-03). Only a closed connection,
+                # which never delivered the request, is retried below.
+                self.close()
+                raise
             except OSError:
                 self.close()
                 if attempt == 2:

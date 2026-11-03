@@ -375,6 +375,14 @@ class LogWindow(_Window):
         scroll.pack(side="right", fill="y")
         self.text.pack(side="left", fill="both", expand=True)
         ttk.Button(frame, text="Refresh", command=self.refresh).pack(pady=4)
+        # The first fill happens before Tk has sized the widget, when see("end") has nothing to work
+        # with and the window opened at the top (seen on the Windows CI's real Tk): scroll to the
+        # newest line once, when the widget gets its real size.
+        self.text.bind("<Configure>", self._on_first_size, add="+")
+
+    def _on_first_size(self, event=None) -> None:
+        self.text.unbind("<Configure>")
+        self.text.see("end")
 
     def refresh(self) -> None:
         lines = self.app.try_call("get_log_tail", n=300) or ["(agent not running)"]

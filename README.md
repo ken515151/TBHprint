@@ -145,7 +145,10 @@ tbhprint update --check-only # ask TechBenchHub for a newer version
    server's websocket host no longer leaves it on the 60-second fallback poll
    until re-paired. Every call also says `X-TBHprint-Transport: reverb` or
    `poller`, so the shop's Settings page can show an agent that is online
-   but only polling.
+   but only polling. The websocket handshake carries the shop's own origin
+   (`Origin: https://<shop host>`): a hosted Reverb admits only the browser
+   origins of its own domains and answered an agent that sent none with
+   `4009 Origin not allowed`, which the log now names.
 
 ## Development
 

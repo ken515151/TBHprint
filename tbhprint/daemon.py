@@ -77,6 +77,7 @@ class Daemon:
         transport = ReverbTransport(
             ws_url=self.cfg.server.reverb.ws_url,
             channel=self.cfg.server.channel,
+            origin=self.cfg.server.origin,
             auth_provider=self._channel_auth,
             on_job=self._on_wire_payload,
             on_connect=lambda: self._on_reverb_connect(transport),

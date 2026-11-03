@@ -21,6 +21,8 @@ def test_round_trip_and_defaults(tmp_path):
     assert cfg.server.host == "shop.techbenchhub.co.uk"
     assert cfg.server.api("jobs") == "https://shop.techbenchhub.co.uk/api/print/v1/jobs"
     assert cfg.server.reverb.ws_url == "wss://ws.techbenchhub.co.uk:443/app/k"
+    assert cfg.server.origin == "https://shop.techbenchhub.co.uk"
+    assert cfgmod.Server().origin == ""
     assert cfg.transport.mode == "auto"
     assert cfg.route_for("ticket_label").copies == 2
     assert cfg.route_for("invoice") is None

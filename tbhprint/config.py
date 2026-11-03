@@ -90,6 +90,17 @@ class Server:
     def host(self) -> str:
         return (urlsplit(self.url).hostname or "").lower()
 
+    @property
+    def origin(self) -> str:
+        """The shop's web origin (scheme://host[:port]), sent as the websocket handshake's Origin header.
+        A hosted Reverb (Laravel Cloud's from 2026-11-01) admits only the browser origins of the
+        environment's own domains and answers any other, or none, with pusher:error 4009 "Origin not
+        allowed"; the agent presents the origin a browser on the shop's own page would."""
+        parts = urlsplit(self.url)
+        if not parts.scheme or not parts.netloc:
+            return ""
+        return f"{parts.scheme}://{parts.netloc}".lower()
+
     def api(self, path: str) -> str:
         return f"{self.url.rstrip('/')}/api/print/v1/{path.lstrip('/')}"
 

@@ -14,6 +14,7 @@ Runs its own asyncio loop on a daemon thread; callbacks fire there.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import random
@@ -54,9 +55,13 @@ class ReverbTransport:
                  auth_provider: Callable[[str, str], str],
                  on_job: Callable[[dict[str, Any]], None],
                  on_connect: Callable[[], None] = lambda: None,
-                 on_state: Callable[[str], None] = lambda s: None):
+                 on_state: Callable[[str], None] = lambda s: None,
+                 origin: str = ""):
         self.ws_url = ws_url
         self.channel = channel
+        # The shop's web origin, sent as the handshake's Origin header: a hosted Reverb admits only the
+        # environment's own browser origins and refuses a client that sends none (4009, 2026-11-03).
+        self.origin = origin
         self.auth_provider = auth_provider
         self.on_job = on_job
         self.on_connect = on_connect
@@ -72,6 +77,14 @@ class ReverbTransport:
     @property
     def url(self) -> str:
         return f"{self.ws_url}?protocol={PROTOCOL_VERSION}&client=tbhprint&version={__version__}"
+
+    def connect_kwargs(self) -> dict[str, Any]:
+        """Keyword arguments for websockets.connect: the timeouts, the frame cap and the Origin header
+        under the name this websockets release takes (additional_headers from 14, extra_headers before)."""
+        kwargs: dict[str, Any] = {"open_timeout": 20, "close_timeout": 5, "max_size": 1 << 20}
+        if self.origin:
+            kwargs[_headers_keyword()] = {"Origin": self.origin}
+        return kwargs
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._thread_main, name="reverb", daemon=True)
@@ -125,8 +138,7 @@ class ReverbTransport:
             backoff = min(backoff * 2, _BACKOFF_CAP)
 
     async def _session(self) -> None:
-        async with websockets.connect(self.url, open_timeout=20, close_timeout=5,
-                                      max_size=1 << 20) as ws:
+        async with websockets.connect(self.url, **self.connect_kwargs()) as ws:
             activity_timeout = await self._handshake(ws)
             log.info("connected and subscribed to %s", self.channel)
             self.connected = True
@@ -140,6 +152,10 @@ class ReverbTransport:
     async def _handshake(self, ws) -> int:
         raw = await asyncio.wait_for(ws.recv(), timeout=20)
         msg = json.loads(raw)
+        if msg.get("event") == "pusher:error":
+            # Say what Reverb said (4009 "Origin not allowed", 4001 "Application does not exist"), so the
+            # tray's log names the cause instead of "got 'pusher:error'" (owner 2026-11-03).
+            raise RuntimeError(f"reverb refused the connection: {_error_text(msg)}")
         if msg.get("event") != "pusher:connection_established":
             raise RuntimeError(f"expected connection_established, got {msg.get('event')!r}")
         data = _event_data(msg)
@@ -184,6 +200,24 @@ class ReverbTransport:
         elif event == "pusher:error":
             data = msg.get("data") or {}
             log.error("reverb error %s: %s", data.get("code"), data.get("message"))
+
+
+def _headers_keyword() -> str:
+    """websockets 14+ takes additional_headers; the legacy client (12, 13) takes extra_headers."""
+    try:
+        params = inspect.signature(websockets.connect).parameters
+    except (TypeError, ValueError):
+        return "additional_headers"
+    return "additional_headers" if "additional_headers" in params else "extra_headers"
+
+
+def _error_text(msg: dict[str, Any]) -> str:
+    """'4009 Origin not allowed' from a pusher:error, whatever shape its data took."""
+    try:
+        data = _event_data(msg)
+    except (ValueError, TypeError):
+        return str(msg.get("data"))
+    return f"{data.get('code', '?')} {data.get('message', '')}".strip()
 
 
 def _event_data(msg: dict[str, Any]) -> dict[str, Any]:

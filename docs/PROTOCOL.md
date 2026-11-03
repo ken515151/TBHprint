@@ -83,6 +83,15 @@ does nothing when they match; when the host, key, port, scheme or channel
 differ it saves them and reconnects the websocket on the new ones. A reply
 without the block (or with an empty `host` or `key`) changes nothing.
 
+The websocket handshake sends `Origin: <scheme>://<host[:port]>` of the
+paired server URL. Reverb checks the Origin header against its allowed
+origins; a self-hosted one is usually `*`, but Laravel Cloud's hosted Reverb
+allows only the environment's own domains and answers a missing or foreign
+origin with `pusher:error` 4009 "Origin not allowed" before
+`connection_established` (found 2026-11-03, the day after the move). The
+agent presents the origin a browser on the shop's own page would, and a
+`pusher:error` in the handshake is logged with its code and message.
+
 ## Acks
 
 `POST /api/print/v1/jobs/{uuid}/ack` `{state: received|printed|failed, error?}`

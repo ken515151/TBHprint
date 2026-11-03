@@ -142,7 +142,8 @@ CHANNEL = "private-tenant.shop.print-agent.u-1"
 class FakeReverb:
     """Stands in for ReverbTransport: records how the daemon built, started and stopped it."""
 
-    def __init__(self, ws_url, channel, auth_provider, on_job, on_connect, on_state):
+    def __init__(self, ws_url, channel, auth_provider, on_job, on_connect, on_state, origin=""):
+        self.origin = origin
         self.ws_url, self.channel = ws_url, channel
         self.on_connect, self.on_state = on_connect, on_state
         self.started = self.stopped = self.connected = False

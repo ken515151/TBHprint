@@ -68,6 +68,36 @@ def test_handshake_sends_auth_string():
     assert sent == [{"event": "pusher:subscribe", "data": {"channel": "private-c", "auth": "k:sig"}}]
 
 
+def test_handshake_names_the_pusher_error_that_refused_the_connection():
+    """A hosted Reverb refuses a client with no Origin header before connection_established (4009 on
+    Laravel Cloud, 2026-11-03): the log must carry Reverb's code and message, not 'got pusher:error'."""
+
+    class WS:
+        async def recv(self):
+            return json.dumps({"event": "pusher:error",
+                               "data": json.dumps({"code": 4009, "message": "Origin not allowed"})})
+
+        async def send(self, raw):
+            pass
+
+    t = tr.ReverbTransport("wss://x/app/k", "private-c", lambda s, c: "", on_job=lambda p: None)
+    with pytest.raises(RuntimeError, match="reverb refused the connection: 4009 Origin not allowed"):
+        asyncio.run(t._handshake(WS()))
+
+
+def test_connect_sends_the_shop_origin_header():
+    """The Origin header under the keyword this websockets release takes; none when no origin is known."""
+    t = tr.ReverbTransport("wss://x/app/k", "private-c", lambda s, c: "", on_job=lambda p: None,
+                           origin="https://shop.techbenchhub.co.uk")
+    kwargs = t.connect_kwargs()
+    headers = kwargs.get("additional_headers") or kwargs.get("extra_headers")
+    assert headers == {"Origin": "https://shop.techbenchhub.co.uk"}
+    assert kwargs["open_timeout"] == 20
+
+    bare = tr.ReverbTransport("wss://x/app/k", "private-c", lambda s, c: "", on_job=lambda p: None)
+    assert "additional_headers" not in bare.connect_kwargs() and "extra_headers" not in bare.connect_kwargs()
+
+
 def test_handshake_raises_on_subscription_error():
     import asyncio
 

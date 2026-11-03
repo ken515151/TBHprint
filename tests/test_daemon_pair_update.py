@@ -130,3 +130,147 @@ def test_check_for_update_full_cycle_uses_check_and_install(tmp_path):
         assert result == {"version": "1.2.3", "notes": ""}
     finally:
         store.close()
+
+
+# -- 0.1.10: websocket details from every sweep, and the transport header (owner 2026-11-03) ------
+
+OLD_REVERB = {"key": "droplet-key", "host": "ws.techbenchhub.co.uk", "port": 443, "scheme": "https"}
+NEW_REVERB = {"key": "cloud-key", "host": "ws-abc.laravel.cloud", "port": 443, "scheme": "https"}
+CHANNEL = "private-tenant.shop.print-agent.u-1"
+
+
+class FakeReverb:
+    """Stands in for ReverbTransport: records how the daemon built, started and stopped it."""
+
+    def __init__(self, ws_url, channel, auth_provider, on_job, on_connect, on_state):
+        self.ws_url, self.channel = ws_url, channel
+        self.on_connect, self.on_state = on_connect, on_state
+        self.started = self.stopped = self.connected = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+        self.connected = False
+
+
+def _paired_daemon(tmp_path, reverb=OLD_REVERB, mode="auto"):
+    daemon, store, pipeline, config_path = _daemon(tmp_path)
+    daemon.cfg.server = cfgmod.Server(url="https://shop.techbenchhub.co.uk", token="tok-1", agent_uuid="u-1",
+                                      agent_name="Front desk", tenant="shop", channel=CHANNEL,
+                                      reverb=cfgmod.reverb_from_wire(reverb))
+    daemon.cfg.transport.mode = mode
+    daemon.client = daemon._new_client()
+    daemon.poller = mock.Mock()
+    if mode != "poll" and reverb.get("host") and reverb.get("key"):
+        daemon.reverb = daemon._new_reverb()
+        daemon.reverb.start()
+    return daemon, store, config_path
+
+
+@pytest.fixture
+def fake_reverb():
+    with mock.patch("tbhprint.daemon.ReverbTransport", FakeReverb):
+        yield
+
+
+def test_server_details_unchanged_do_nothing(tmp_path, fake_reverb):
+    daemon, store, config_path = _paired_daemon(tmp_path)
+    try:
+        before = daemon.reverb
+        with mock.patch("tbhprint.daemon.cfgmod.save") as fake_save:
+            daemon._on_server_details(dict(OLD_REVERB), CHANNEL)
+            daemon._on_server_details({"key": "droplet-key", "host": "ws.techbenchhub.co.uk"}, None)  # defaults
+        fake_save.assert_not_called()
+        assert daemon.reverb is before and not before.stopped
+    finally:
+        store.close()
+
+
+def test_server_details_with_a_new_host_save_and_reconnect(tmp_path, fake_reverb, caplog):
+    daemon, store, config_path = _paired_daemon(tmp_path)
+    try:
+        old = daemon.reverb
+        old.connected = True
+        daemon._on_reverb_connect(old)
+        assert daemon._transport_header() == "reverb"
+        with caplog.at_level("INFO", logger="tbhprint.daemon"):
+            daemon._on_server_details(dict(NEW_REVERB), CHANNEL)
+        assert old.stopped
+        assert daemon.reverb is not old and daemon.reverb.started
+        assert daemon.reverb.ws_url == "wss://ws-abc.laravel.cloud:443/app/cloud-key"
+        assert daemon.reverb.channel == CHANNEL
+        assert daemon.transport_name == "poller" and daemon._transport_header() == "poller"
+        daemon.poller.set_mode.assert_called_with("fallback")
+        saved = cfgmod.load(config_path)
+        assert saved.server.reverb.host == "ws-abc.laravel.cloud" and saved.server.reverb.key == "cloud-key"
+        assert daemon.cfg.server.token == "tok-1"                       # the in-memory token is untouched
+        assert any("host ws.techbenchhub.co.uk -> ws-abc.laravel.cloud (key changed: yes" in r.getMessage()
+                   for r in caplog.records)
+        # The replaced socket can no longer move the daemon's state.
+        old.on_connect()
+        old.on_state("connected")
+        assert daemon.transport_name == "poller"
+        # A second sweep with the same block is the hot path again.
+        current = daemon.reverb
+        with mock.patch("tbhprint.daemon.cfgmod.save") as fake_save:
+            daemon._on_server_details(dict(NEW_REVERB), CHANNEL)
+        fake_save.assert_not_called()
+        assert daemon.reverb is current
+    finally:
+        store.close()
+
+
+def test_server_details_reach_an_agent_paired_without_them(tmp_path, fake_reverb):
+    daemon, store, config_path = _paired_daemon(tmp_path, reverb={})
+    try:
+        assert daemon.reverb is None
+        daemon._on_server_details(dict(NEW_REVERB), CHANNEL)
+        assert daemon.reverb is not None and daemon.reverb.started
+        assert daemon.reverb.ws_url == "wss://ws-abc.laravel.cloud:443/app/cloud-key"
+        assert cfgmod.load(config_path).server.reverb.host == "ws-abc.laravel.cloud"
+    finally:
+        store.close()
+
+
+def test_server_details_with_a_new_channel_alone_save_and_reconnect(tmp_path, fake_reverb):
+    daemon, store, config_path = _paired_daemon(tmp_path)
+    try:
+        old = daemon.reverb
+        daemon._on_server_details(dict(OLD_REVERB), "private-tenant.shop.print-agent.u-2")
+        assert old.stopped and daemon.reverb is not old and daemon.reverb.started
+        assert daemon.reverb.channel == "private-tenant.shop.print-agent.u-2"
+        assert cfgmod.load(config_path).server.channel == "private-tenant.shop.print-agent.u-2"
+    finally:
+        store.close()
+
+
+def test_server_details_in_poll_mode_are_saved_without_a_websocket(tmp_path, fake_reverb):
+    daemon, store, config_path = _paired_daemon(tmp_path, mode="poll")
+    try:
+        daemon._on_server_details(dict(NEW_REVERB), CHANNEL)
+        assert daemon.reverb is None
+        assert cfgmod.load(config_path).server.reverb.host == "ws-abc.laravel.cloud"
+    finally:
+        store.close()
+
+
+def test_transport_header_follows_the_websocket(tmp_path, fake_reverb):
+    daemon, store, config_path = _paired_daemon(tmp_path)
+    try:
+        header = apimod.TRANSPORT_HEADER
+        assert daemon.client._headers()[header] == "poller"          # socket not up yet
+        daemon.reverb.connected = True
+        daemon.reverb.on_connect()                                    # as the transport calls it
+        assert daemon.client._headers()[header] == "reverb"
+        assert daemon.status()["transport"] == "reverb"
+        daemon.reverb.connected = False
+        daemon._on_transport_state("disconnected")
+        assert daemon.client._headers()[header] == "poller"
+        assert daemon.status()["transport"] == "poller"
+        # And a stale name never outruns a dead socket: connected=False alone already reads poller.
+        daemon.transport_name = "reverb"
+        assert daemon.client._headers()[header] == "poller"
+    finally:
+        store.close()

@@ -139,6 +139,13 @@ tbhprint update --check-only # ask TechBenchHub for a newer version
    `GET /jobs` drops any idle pooled connection first and retries twice on a
    fresh one, so a connection the far end closed never counts as a failure;
    a `POST` (ack, channel auth) is never retried.
+6. Following the server (0.1.10): every `GET /jobs` reply repeats pairing's
+   Reverb details and channel; when they differ from the config the agent
+   saves them and reconnects the websocket on the new ones, so a move of the
+   server's websocket host no longer leaves it on the 60-second fallback poll
+   until re-paired. Every call also says `X-TBHprint-Transport: reverb` or
+   `poller`, so the shop's Settings page can show an agent that is online
+   but only polling.
 
 ## Development
 

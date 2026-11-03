@@ -7,7 +7,9 @@
   POST /api/print/v1/broadcasting/auth          Pusher-protocol private channel auth
 
 Every authenticated call carries `Authorization: Bearer <token>` plus the
-agent version/platform headers the server uses for its online lamp.
+agent version/platform headers the server uses for its online lamp, and
+`X-TBHprint-Transport` (`reverb` | `poller`) so the shop can see an agent that
+is online but only polling (0.1.10, 2026-11-03).
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from __future__ import annotations
 import logging
 import platform
 import sys
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 import requests
@@ -122,10 +124,17 @@ def _session() -> requests.Session:
     return session
 
 
+TRANSPORT_HEADER = "X-TBHprint-Transport"
+
+
 class Client:
-    def __init__(self, server: Server, session: requests.Session | None = None):
+    def __init__(self, server: Server, session: requests.Session | None = None,
+                 transport_provider: Callable[[], str] | None = None):
         self.server = server
         self.session = session or _session()
+        # Read on EVERY request so the header is true at the moment of the call: the server marks an agent
+        # "Online, polling only" after ten minutes of `poller` (2026-11-03). No provider -> `poller`.
+        self.transport_provider = transport_provider
 
     def drop_idle_connections(self) -> None:
         """Forget pooled connections before a sweep that follows a long quiet gap, so a connection the edge has
@@ -133,15 +142,30 @@ class Client:
         self.session.close()
 
     def _headers(self) -> dict[str, str]:
-        return _headers(self.server.token)
+        headers = _headers(self.server.token)
+        transport = self.transport_provider() if self.transport_provider else None
+        headers[TRANSPORT_HEADER] = transport or "poller"
+        return headers
 
-    def list_jobs(self, since_iso: str | None = None) -> list[dict[str, Any]]:
+    def sweep(self, since_iso: str | None = None) -> dict[str, Any]:
+        """One GET /jobs, whole reply: {jobs: [dict, ...], reverb: dict | None, channel: str | None}.
+        The server repeats pairing's websocket block here so an agent paired before a move of its
+        Reverb host (droplet -> Laravel Cloud, 2026-11-01) finds the new one on its next catch-up."""
         params = {"since": since_iso} if since_iso else {}
         resp = self.session.get(self.server.api("jobs"), params=params, headers=self._headers(),
                                 timeout=_TIMEOUT, verify=True)
         data = _check(resp, "jobs")
         jobs = data.get("jobs")
-        return [j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else []
+        reverb = data.get("reverb")
+        channel = data.get("channel")
+        return {
+            "jobs": [j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else [],
+            "reverb": reverb if isinstance(reverb, dict) else None,
+            "channel": channel if isinstance(channel, str) and channel else None,
+        }
+
+    def list_jobs(self, since_iso: str | None = None) -> list[dict[str, Any]]:
+        return self.sweep(since_iso)["jobs"]
 
     def ack(self, job_uuid: str, state: str, error: str | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {"state": state}

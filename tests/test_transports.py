@@ -91,7 +91,7 @@ def test_handshake_raises_on_subscription_error():
 
 def test_poller_sweep_hands_every_open_job_over():
     client = mock.Mock()
-    client.list_jobs.return_value = [{"uuid": "a"}, {"uuid": "b"}]
+    client.sweep.return_value = {"jobs": [{"uuid": "a"}, {"uuid": "b"}], "reverb": None, "channel": None}
     got = []
     poller = PollerTransport(lambda: client, on_job=got.append, interval_s=10)
     assert poller.sweep_once() == 2
@@ -102,7 +102,7 @@ def test_poller_sweep_hands_every_open_job_over():
 
 def test_poller_reports_auth_errors_as_error_state():
     client = mock.Mock()
-    client.list_jobs.side_effect = apimod.AuthError("revoked")
+    client.sweep.side_effect = apimod.AuthError("revoked")
     states = []
     poller = PollerTransport(lambda: client, on_job=lambda p: None, interval_s=10, on_state=states.append)
     poller.active = True
@@ -122,8 +122,8 @@ def test_poller_heartbeat_mode_sweeps_quietly():
     got: list[dict] = []
 
     class Client:
-        def list_jobs(self):
-            return [{"uuid": "u1"}]
+        def sweep(self):
+            return {"jobs": [{"uuid": "u1"}], "reverb": None, "channel": None}
 
     poller = PollerTransport(lambda: Client(), on_job=got.append, interval_s=10, heartbeat_s=30,
                              on_state=states.append)
@@ -160,7 +160,7 @@ def test_client_retries_a_get_on_a_fresh_connection_but_never_a_post():
 
 def test_poller_drops_idle_connections_before_each_sweep():
     client = mock.Mock()
-    client.list_jobs.return_value = []
+    client.sweep.return_value = {"jobs": [], "reverb": None, "channel": None}
     poller = PollerTransport(lambda: client, on_job=lambda p: None, interval_s=10)
     poller.sweep_once()
     client.drop_idle_connections.assert_called_once()
@@ -194,3 +194,57 @@ def test_reverb_drop_after_a_healthy_session_is_info_and_reconnects_at_once(monk
     assert levels[0][0] == "INFO" and "recycled after 5m00s" in levels[0][1]
     assert levels[1][0] == "WARNING" and "failed after 5s" in levels[1][1]
     assert delays[0] == pytest.approx(tr._BACKOFF_START)
+
+
+# -- 0.1.10: the server's websocket details ride every sweep (owner 2026-11-03) --------------------
+
+def test_poller_hands_the_server_details_over_only_when_they_carry_host_and_key():
+    reverb = {"key": "cloud-key", "host": "ws.cloud.example", "port": 443, "scheme": "https"}
+    replies = iter([
+        {"jobs": [{"uuid": "a"}], "reverb": reverb, "channel": "private-tenant.1.print-agent.u"},
+        {"jobs": [], "reverb": None, "channel": None},                     # an older server: no block
+        {"jobs": [], "reverb": {"key": "", "host": "ws.cloud.example"}, "channel": "private-x"},
+        {"jobs": [], "reverb": {"key": "k", "host": ""}, "channel": None},
+    ])
+    client = mock.Mock()
+    client.sweep.side_effect = lambda: next(replies)
+    got, details = [], []
+    poller = PollerTransport(lambda: client, on_job=got.append, interval_s=10,
+                             on_server_details=lambda r, c: details.append((r, c)))
+    assert poller.sweep_once() == 1
+    for _ in range(3):
+        assert poller.sweep_once() == 0
+    assert got == [{"uuid": "a"}]
+    assert details == [(reverb, "private-tenant.1.print-agent.u")]
+
+
+def test_poller_sweep_survives_a_failing_details_callback():
+    client = mock.Mock()
+    client.sweep.return_value = {"jobs": [{"uuid": "a"}], "reverb": {"key": "k", "host": "h"}, "channel": None}
+
+    def boom(reverb, channel):
+        raise RuntimeError("bad block")
+
+    got = []
+    poller = PollerTransport(lambda: client, on_job=got.append, interval_s=10, on_server_details=boom)
+    assert poller.sweep_once() == 1 and got == [{"uuid": "a"}]
+
+
+def test_reverb_stop_from_its_own_thread_does_not_join_itself():
+    """The connect catch-up runs on the websocket thread and may restart the websocket on new details."""
+    import threading
+
+    t = tr.ReverbTransport("wss://x/app/k", "private-c", lambda s, c: "", on_job=lambda p: None)
+    t.connected = True
+    errors = []
+
+    def run():
+        try:
+            t.stop()
+        except Exception as exc:  # pragma: no cover - the failure being guarded against
+            errors.append(exc)
+
+    t._thread = threading.Thread(target=run)
+    t._thread.start()
+    t._thread.join(timeout=5)
+    assert errors == [] and t.connected is False and t._stopping.is_set()

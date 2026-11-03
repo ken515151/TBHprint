@@ -297,7 +297,6 @@ def server_from_pairing(data: dict[str, Any], server_url: str, agent_name: str) 
     """The `POST /pair` response -> a `Server` section, shared by the CLI's
     `pair`, the daemon's `pair` control command and the tray's Settings
     window - one place that knows the pairing payload's shape."""
-    reverb = data.get("reverb") or {}
     return Server(
         url=server_url,
         token=str(data["token"]),
@@ -305,9 +304,15 @@ def server_from_pairing(data: dict[str, Any], server_url: str, agent_name: str) 
         agent_name=str(data.get("name") or agent_name),
         tenant=str(data.get("tenant") or ""),
         channel=str(data.get("channel") or ""),
-        reverb=Reverb(key=str(reverb.get("key") or ""), host=str(reverb.get("host") or ""),
-                     port=int(reverb.get("port") or 443), scheme=str(reverb.get("scheme") or "https")),
+        reverb=reverb_from_wire(data.get("reverb") or {}),
     )
+
+
+def reverb_from_wire(reverb: dict[str, Any]) -> Reverb:
+    """The server's `reverb: {key, host, port, scheme}` block -> `Reverb`. Pairing and every
+    `GET /jobs` reply carry it; one place coerces it (ValueError on a non-numeric port)."""
+    return Reverb(key=str(reverb.get("key") or ""), host=str(reverb.get("host") or ""),
+                  port=int(reverb.get("port") or 443), scheme=str(reverb.get("scheme") or "https"))
 
 
 def apply_update(cfg: Config, update: dict[str, Any]) -> Config:

@@ -51,6 +51,42 @@ def test_headers_carry_bearer_and_version():
     assert headers["X-TBHprint-Platform"] in ("windows", "linux", "macos")
 
 
+def test_client_headers_carry_the_transport_on_every_call():
+    """X-TBHprint-Transport: `poller` with no provider, else the provider's value read per request."""
+    assert apimod.TRANSPORT_HEADER not in apimod._headers("tok")   # pair() is unpaired: no transport
+    plain = apimod.Client(server(), session=mock.Mock())
+    assert plain._headers()[apimod.TRANSPORT_HEADER] == "poller"
+    assert plain._headers()["Authorization"] == "Bearer tok"
+
+    current = {"transport": "reverb"}
+    session = mock.Mock()
+    session.get.return_value = Resp(200, {"jobs": []})
+    session.post.return_value = Resp(200, {"auth": "key:sig", "applied": True})
+    client = apimod.Client(server(), session=session, transport_provider=lambda: current["transport"])
+    client.list_jobs()
+    assert session.get.call_args.kwargs["headers"][apimod.TRANSPORT_HEADER] == "reverb"
+    client.channel_auth("1.1", "private-x")
+    assert session.post.call_args.kwargs["headers"][apimod.TRANSPORT_HEADER] == "reverb"
+    current["transport"] = "poller"
+    client.ack("a", "received")
+    assert session.post.call_args.kwargs["headers"][apimod.TRANSPORT_HEADER] == "poller"
+
+
+def test_sweep_returns_jobs_with_the_server_websocket_details():
+    session = mock.Mock()
+    reverb = {"key": "k2", "host": "ws.cloud.example", "port": 443, "scheme": "https"}
+    session.get.return_value = Resp(200, {"jobs": [{"uuid": "a"}, "junk"], "server_time": "2026-11-03T10:00:00Z",
+                                          "reverb": reverb, "channel": "private-tenant.1.print-agent.u"})
+    client = apimod.Client(server(), session=session)
+    assert client.sweep() == {"jobs": [{"uuid": "a"}], "reverb": reverb,
+                              "channel": "private-tenant.1.print-agent.u"}
+
+    session.get.return_value = Resp(200, {"jobs": [{"uuid": "b"}]})      # a server from before 0.1.10
+    assert client.sweep() == {"jobs": [{"uuid": "b"}], "reverb": None, "channel": None}
+    session.get.return_value = Resp(200, {"jobs": [], "reverb": "junk", "channel": ""})
+    assert client.sweep() == {"jobs": [], "reverb": None, "channel": None}
+
+
 def test_list_jobs_and_ack_and_auth_errors():
     session = mock.Mock()
     session.get.return_value = Resp(200, {"jobs": [{"uuid": "a"}, "junk"]})

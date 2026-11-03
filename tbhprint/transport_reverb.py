@@ -65,6 +65,9 @@ class ReverbTransport:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._stopping = threading.Event()
+        # True only between a confirmed subscribe and the end of that session: the daemon's
+        # X-TBHprint-Transport header reads it, so it must never outlive the socket.
+        self.connected = False
 
     @property
     def url(self) -> str:
@@ -76,10 +79,13 @@ class ReverbTransport:
 
     def stop(self) -> None:
         self._stopping.set()
+        self.connected = False
         loop, task = self._loop, self._task
         if loop and loop.is_running() and task:
             loop.call_soon_threadsafe(task.cancel)
-        if self._thread:
+        # The connect catch-up runs ON this thread and may restart the websocket (new server details):
+        # never join yourself - the cancel above ends the task at its next await.
+        if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=10)
 
     def _thread_main(self) -> None:
@@ -123,9 +129,13 @@ class ReverbTransport:
                                       max_size=1 << 20) as ws:
             activity_timeout = await self._handshake(ws)
             log.info("connected and subscribed to %s", self.channel)
-            self.on_state("connected")
-            self.on_connect()
-            await self._read_loop(ws, activity_timeout)
+            self.connected = True
+            try:
+                self.on_state("connected")
+                self.on_connect()
+                await self._read_loop(ws, activity_timeout)
+            finally:
+                self.connected = False
 
     async def _handshake(self, ws) -> int:
         raw = await asyncio.wait_for(ws.recv(), timeout=20)

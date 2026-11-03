@@ -7,6 +7,16 @@ contract the agent implements. Versioned by the `/v1` path.
 All requests: `Authorization: Bearer <token>` (except pair),
 `X-TBHprint-Version`, `X-TBHprint-Platform`. JSON in, JSON out.
 
+Every authenticated request (since 0.1.10) also carries
+`X-TBHprint-Transport`, read at the moment the request is sent:
+
+- `reverb` — the websocket is connected AND subscribed to the agent's
+  channel; jobs arrive the instant they are queued.
+- `poller` — anything else (socket down, reconnecting, never configured,
+  `transport.mode: poll`); jobs arrive on the next sweep, up to
+  `poll_interval_s` late. The server shows the agent amber, "Online,
+  polling only", and warns the shop after ten minutes of `poller`.
+
 ## Pair
 
 `POST /api/print/v1/pair` `{code, name, platform?, version?}`
@@ -57,10 +67,21 @@ JSON (Pusher double-encodes data as a string).
 
 ## Catch-up / fallback
 
-`GET /api/print/v1/jobs[?since=<iso>]` → `{jobs: [Job…], server_time}` —
+`GET /api/print/v1/jobs[?since=<iso>]` →
+`{jobs: [Job…], server_time, reverb: {key, host, port, scheme}, channel}` —
 every job still `queued` or `delivered` for THIS agent, not expired,
 oldest first, max 200. The agent calls it on start, on every websocket
-(re)connect, and every `poll_interval_s` while the websocket is down.
+(re)connect, every `poll_interval_s` while the websocket is down and every
+`heartbeat_interval_s` while it is up.
+
+`reverb` and `channel` are the same block pairing returns, repeated so an
+agent follows the server when its websocket host or key moves (production
+moved from the droplet's Reverb to Laravel Cloud's on 2026-11-01; agents
+paired before 0.1.10 kept dialling the dead host and printed on the
+fallback poll). The agent compares them with its config on every sweep and
+does nothing when they match; when the host, key, port, scheme or channel
+differ it saves them and reconnects the websocket on the new ones. A reply
+without the block (or with an empty `host` or `key`) changes nothing.
 
 ## Acks
 

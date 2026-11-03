@@ -11,6 +11,13 @@ sweeping at the slower heartbeat cadence, both to keep the server's
 last_seen fresh (a silent websocket agent otherwise shows "offline" in
 the shop after five minutes) and to recover any broadcast the socket
 dropped without a reconnect.
+
+Every sweep's reply also carries the server's current websocket details
+(`reverb`, `channel` - the block pairing returns). The poller hands them to
+`on_server_details`; the daemon compares them with its config and reconnects
+only when they changed (0.1.10: an agent paired before production moved its
+Reverb host on 2026-11-01 dialled the dead host for good and printed on the
+60-second fallback poll).
 """
 
 from __future__ import annotations
@@ -36,8 +43,10 @@ class PollerTransport:
                  on_job: Callable[[dict[str, Any]], None],
                  interval_s: int = 60,
                  heartbeat_s: int = 120,
-                 on_state: Callable[[str], None] = lambda s: None):
+                 on_state: Callable[[str], None] = lambda s: None,
+                 on_server_details: Callable[[dict[str, Any], str | None], None] = lambda r, c: None):
         self.client_provider = client_provider
+        self.on_server_details = on_server_details
         self.on_job = on_job
         self.interval_s = interval_s
         self.heartbeat_s = heartbeat_s
@@ -87,19 +96,29 @@ class PollerTransport:
         self._wake.set()
 
     def sweep_once(self) -> int:
-        """One GET /jobs; hands every open job to on_job. Returns the count."""
+        """One GET /jobs; hands every open job to on_job, then the reply's websocket details (when it
+        carries a host and key) to on_server_details. Returns the job count."""
         with self._sweep_lock:
             client = self.client_provider()
             if client is None:
                 return 0
             if hasattr(client, "drop_idle_connections"):
                 client.drop_idle_connections()
-            jobs = client.list_jobs()
+            reply = client.sweep()
+            jobs = reply.get("jobs") or []
             for payload in jobs:
                 self.on_job(payload)
             if jobs:
                 log.info("catch-up found %d open job(s)", len(jobs))
-            return len(jobs)
+        # Outside the sweep lock: a changed block restarts the websocket, whose reconnect runs a
+        # catch-up sweep of its own on the websocket thread - it must be able to take the lock.
+        reverb = reply.get("reverb")
+        if isinstance(reverb, dict) and reverb.get("host") and reverb.get("key"):
+            try:
+                self.on_server_details(reverb, reply.get("channel"))
+            except Exception:
+                log.exception("could not apply the server's websocket details")
+        return len(jobs)
 
     def _run(self) -> None:
         while not self._stopping:

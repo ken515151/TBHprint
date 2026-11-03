@@ -40,20 +40,49 @@ class Daemon:
         self.pipeline = pipeline
         self.config_path = config_path
         self.state_dir = state_dir or cfgmod.default_state_dir()
-        self.client: apimod.Client | None = apimod.Client(cfg.server) if cfg.server.is_paired else None
+        self.reverb: ReverbTransport | None = None
+        self.transport_name = "none"
+        self.client: apimod.Client | None = self._new_client()
         self.pipeline.set_client(self.client)
         # unpaired | starting | connected | degraded | disconnected | error
         self.state = "starting" if cfg.server.is_paired else "unpaired"
-        self.transport_name = "none"
         self.log_handler = RingBufferHandler()
         logging.getLogger().addHandler(self.log_handler)
-        self.reverb: ReverbTransport | None = None
         self.poller: PollerTransport | None = None
         self._stop_event = threading.Event()
         self._update_stop = threading.Event()
         self._update_thread: threading.Thread | None = None
+        # Serialises applying the server's websocket details: two sweeps (poller, connect catch-up,
+        # `tbhprint catch-up`) carrying the same new block restart the websocket once, not twice.
+        self._details_lock = threading.Lock()
 
     # -- transports -------------------------------------------------------
+
+    def _new_client(self) -> apimod.Client | None:
+        if not self.cfg.server.is_paired:
+            return None
+        return apimod.Client(self.cfg.server, transport_provider=self._transport_header)
+
+    def _transport_header(self) -> str:
+        """X-TBHprint-Transport for the request being sent NOW: `reverb` only while the websocket is
+        connected and subscribed; the server warns the shop after ten minutes of `poller`."""
+        reverb = self.reverb
+        if self.transport_name == "reverb" and reverb is not None and reverb.connected:
+            return "reverb"
+        return "poller"
+
+    def _new_reverb(self) -> ReverbTransport:
+        """The websocket on the current details. Its connect/state callbacks name the transport, so a
+        socket the daemon has since replaced (new server details) can no longer move the daemon's state."""
+        transport = ReverbTransport(
+            ws_url=self.cfg.server.reverb.ws_url,
+            channel=self.cfg.server.channel,
+            auth_provider=self._channel_auth,
+            on_job=self._on_wire_payload,
+            on_connect=lambda: self._on_reverb_connect(transport),
+            on_state=lambda state: self._on_reverb_state(transport, state),
+        )
+        return transport
 
     def start_transports(self) -> None:
         if not self.cfg.server.is_paired:
@@ -67,25 +96,20 @@ class Daemon:
             interval_s=self.cfg.transport.poll_interval_s,
             heartbeat_s=self.cfg.transport.heartbeat_interval_s,
             on_state=self._on_transport_state,
+            on_server_details=self._on_server_details,
         )
         self.poller.start()
         reverb = self.cfg.server.reverb
+        # The poller carries the work until the websocket confirms its subscribe (_on_reverb_connect).
+        self.transport_name = "poller"
         if mode in ("auto", "realtime") and reverb.key and reverb.host:
-            self.reverb = ReverbTransport(
-                ws_url=reverb.ws_url,
-                channel=self.cfg.server.channel,
-                auth_provider=self._channel_auth,
-                on_job=self._on_wire_payload,
-                on_connect=self._on_reverb_connect,
-                on_state=self._on_transport_state,
-            )
+            self.reverb = self._new_reverb()
             self.reverb.start()
             if mode == "auto":
                 self.poller.set_mode("fallback")
         else:
             if mode != "poll":
                 log.warning("server sent no websocket details - polling only")
-            self.transport_name = "poller"
             self.poller.set_mode("fallback")
         # Always one catch-up at start so nothing queued while we were down is missed.
         threading.Thread(target=self._safe_catch_up, name="startup-catch-up", daemon=True).start()
@@ -96,10 +120,14 @@ class Daemon:
             raise RuntimeError("not paired")
         return self.client.channel_auth(socket_id, channel)
 
-    def _on_reverb_connect(self) -> None:
+    def _on_reverb_connect(self, transport: ReverbTransport | None = None) -> None:
+        if transport is not None and transport is not self.reverb:
+            return   # a websocket already replaced by one on newer details
         self.transport_name = "reverb"
         self.state = "connected"
         self._safe_catch_up()
+        if transport is not None and transport is not self.reverb:
+            return   # this catch-up brought new websocket details and replaced the socket: stay on fallback
         if self.cfg.transport.mode == "auto" and self.poller:
             # Slow heartbeat, never silence: the server's online lamp (and
             # the ticket-page print rows) follow last_seen, which only
@@ -117,16 +145,75 @@ class Daemon:
         except Exception:
             log.exception("catch-up sweep failed")
 
+    def _on_reverb_state(self, transport: ReverbTransport, state: str) -> None:
+        if transport is self.reverb:
+            self._on_transport_state(state)
+
     def _on_transport_state(self, state: str) -> None:
         if state == "connected":
             self.state = "connected"
         elif state == "disconnected":
+            self.transport_name = "poller"   # never report (or send) `reverb` over a dead socket
             self.state = "degraded" if self.cfg.transport.mode == "auto" else "disconnected"
             if self.cfg.transport.mode == "auto" and self.poller:
                 self.poller.set_mode("fallback")
         elif state in ("degraded", "error"):
             if self.state != "connected":
                 self.state = state
+
+    def _on_server_details(self, reverb: dict[str, Any], channel: str | None) -> None:
+        """A sweep's reply carried the server's websocket block. Called on every sweep (60/120 s) from
+        whichever thread swept - the poller, the connect catch-up on the websocket thread, a control
+        command - so the unchanged case returns at once with no I/O. A changed block (production moved
+        its Reverb host and key on 2026-11-01; agents paired before it never connected again) is
+        saved and, in auto/realtime mode, the websocket is restarted on it."""
+        try:
+            new_reverb = cfgmod.reverb_from_wire(reverb)
+        except (TypeError, ValueError) as exc:
+            log.warning("ignoring malformed websocket details from the server: %s", exc)
+            return
+        new_channel = channel if isinstance(channel, str) and channel else None
+        if not self._details_differ(new_reverb, new_channel):
+            return
+        with self._details_lock:
+            if not self._details_differ(new_reverb, new_channel):
+                return   # another sweep applied the same block while we waited
+            server = self.cfg.server
+            old_reverb, old_channel = server.reverb, server.channel
+            realtime = self.cfg.transport.mode in ("auto", "realtime")
+            log.info("websocket details changed by the server: host %s -> %s (key changed: %s, channel changed: %s); %s",
+                     old_reverb.host or "(none)", new_reverb.host,
+                     "yes" if old_reverb.key != new_reverb.key else "no",
+                     "yes" if new_channel is not None and new_channel != old_channel else "no",
+                     "reconnecting" if realtime else "saved (poll mode - no websocket)")
+            server.reverb = new_reverb
+            if new_channel is not None:
+                server.channel = new_channel
+            try:
+                cfgmod.save(self.cfg, self.config_path)
+            except (OSError, cfgmod.ConfigError) as exc:
+                # Reconnect anyway: the prints should not wait on a config file. The in-memory copy now
+                # matches the server, so the next sweep does not try again; a restart re-learns it.
+                log.warning("could not save the new websocket details: %s", exc)
+            if realtime:
+                self._restart_realtime()
+
+    def _details_differ(self, reverb: cfgmod.Reverb, channel: str | None) -> bool:
+        server = self.cfg.server
+        return reverb != server.reverb or (channel is not None and channel != server.channel)
+
+    def _restart_realtime(self) -> None:
+        """Stop the websocket on the old details (cancel its task, join its thread unless that is the
+        calling thread), then start one on the new. Only the websocket: the poller - possibly the
+        caller - and the client keep running, and the poller sweeps at the fallback cadence until
+        the new socket confirms its subscribe."""
+        old = self.reverb
+        self.reverb = None   # the transport header reads `poller` from here on
+        if old is not None:
+            old.stop()
+            self._on_transport_state("disconnected")
+        self.reverb = self._new_reverb()
+        self.reverb.start()
 
     def _on_wire_payload(self, payload: dict[str, Any]) -> None:
         try:
@@ -211,7 +298,7 @@ class Daemon:
             if transport:
                 transport.stop()
         self.reverb = self.poller = None
-        self.client = apimod.Client(self.cfg.server) if self.cfg.server.is_paired else None
+        self.client = self._new_client()
         self.pipeline.set_client(self.client)
         self.transport_name = "none"
         self.state = "starting" if self.cfg.server.is_paired else "unpaired"

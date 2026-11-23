@@ -72,9 +72,11 @@ tbhprint test-print "HP LaserJet"
 ```
 
 Document types: `ticket_label`, `booking_sheet`, `collection_form`,
-`invoice`, `receipt`, `estimate`, `credit_note`, `purchase_order`. A type
-with no route fails the job with "no printer routed" so the reason is
-visible in TechBenchHub rather than silently dropped.
+`invoice`, `receipt`, `estimate`, `credit_note`, `purchase_order`,
+`statement`, `z_report`, `report`, `ticket_type_document` (0.1.12 added
+the last four as their own Settings rows). A type with no route goes to the
+default printer; with no default either, the job fails with "no printer
+routed" so the reason is visible in TechBenchHub rather than silently dropped.
 
 ### Linux: nothing to do after installing
 

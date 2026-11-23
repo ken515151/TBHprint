@@ -55,7 +55,9 @@ repo is private and the agent only ever holds its own bearer token.
 ```
 
 Document types: `invoice`, `receipt`, `estimate`, `credit_note`,
-`purchase_order`, `booking_sheet`, `collection_form`, `ticket_label`.
+`purchase_order`, `statement`, `z_report`, `report`, `booking_sheet`,
+`collection_form`, `ticket_label`, `ticket_type_document`. An unlisted type
+is still printed (on the default printer) with a warning in the log.
 
 ## Realtime
 

@@ -19,6 +19,10 @@ DOCUMENT_LABELS = {
     "estimate": "Estimate",
     "credit_note": "Credit note",
     "purchase_order": "Purchase order",
+    "statement": "Statement",
+    "z_report": "Z report",
+    "report": "Report",
+    "ticket_type_document": "Extra document",
 }
 
 STATE_LABELS = {

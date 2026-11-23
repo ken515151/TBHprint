@@ -25,7 +25,8 @@ from .store import Store
 log = logging.getLogger("tbhprint.pipeline")
 
 DOCUMENT_TYPES = ("invoice", "receipt", "estimate", "credit_note", "purchase_order",
-                  "booking_sheet", "collection_form", "ticket_label")
+                  "statement", "z_report", "report", "booking_sheet", "collection_form",
+                  "ticket_label", "ticket_type_document")
 
 
 class PayloadError(ValueError):

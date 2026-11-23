@@ -57,3 +57,12 @@ def test_log_scroll_target_follows_the_tail_only_from_the_bottom():
     assert log_scroll_target(lines, "08:59 gone", was_at_bottom=False) == 1     # rolled out of the tail: top
     assert log_scroll_target(lines, "", was_at_bottom=False) == 1
     assert log_scroll_target([], "", was_at_bottom=True) is None
+
+
+def test_every_server_document_type_has_a_labelled_row_and_an_unrouted_one_keeps_the_default_printer():
+    rows = routing_rows({"printers": {}, "routing": {}})
+    labels = {r["document_type"]: r["label"] for r in rows}
+    assert labels["report"] == "Report" and labels["statement"] == "Statement"
+    assert labels["z_report"] == "Z report" and labels["ticket_type_document"] == "Extra document"
+    update = routing_update(rows, default_printer_name="HP LaserJet")
+    assert "report" not in update["routing"] and update["default_printer"] == "hp_laserjet"
